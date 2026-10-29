@@ -16,7 +16,7 @@
   const skctx = skinCv.getContext('2d');
 
   // keep in step with version.json and the ?v= in index.html
-  const APP_VERSION = '9';
+  const APP_VERSION = '10';
   const CARD_W = 500, CARD_H = 700;
   const CARD_ASPECT = CARD_H / CARD_W;                     // long / short (poker card 88.9 x 63.5mm)
   const BUILTIN_ID = 'builtin-3c';
@@ -27,17 +27,17 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
   };
   const DEFAULTS = {
-    armed: true, activeCard: BUILTIN_ID, mode: 'video', grid: true, level: true, showVersion: true, recordAudio: true,
+    armed: true, activeCard: BUILTIN_ID, mode: 'video', grid: true, level: true, showVersion: true, realRecord: false, recordAudio: false,
     // timed trick: a fake card animates over the live picture while the bottom is masked
-    trick: 'timed', path: 'swipe-rl', trigger: 'both', dur: 3.2, pause: 0.6, delay: 0,
+    trick: 'timed', path: 'swipe-rl', trigger: 'tap', dur: 3.2, pause: 0.6, delay: 5, cueLead: 1,
     cardW: 78, cardY: 95, restX: 58, tilt: -4, cardBright: 100, grain: 30, blur: 35, wobble: true,
     mask: 'off', maskH: 40, maskFeather: 10, maskAfter: 1.5, mirrorOverlay: true, flip180: false, fingers: true, showDot: true,
     margin: 4, smooth: 10, hold: 4, cardS: 50,
     bright: 70, maxSat: 30, minSize: 2, useBg: true, bgDiff: 20, debug: false,
   };
   // bump when the default card movement changes, so phones that already saved settings pick it up
-  const MOVEMENT_VERSION = 3;
-  const MOVEMENT_KEYS = ['path', 'dur', 'pause', 'delay', 'cardW', 'cardY', 'restX', 'tilt', 'blur', 'mask'];
+  const MOVEMENT_VERSION = 4;
+  const MOVEMENT_KEYS = ['path', 'dur', 'pause', 'delay', 'cardW', 'cardY', 'restX', 'tilt', 'blur', 'mask', 'trigger', 'recordAudio'];
   const saved = store.get('ct.settings', {});
   if (saved.movementVersion !== MOVEMENT_VERSION) MOVEMENT_KEYS.forEach((k) => delete saved[k]);
   const S = Object.assign({}, DEFAULTS, saved, { movementVersion: MOVEMENT_VERSION });
@@ -127,9 +127,9 @@
       // ask for the microphone together with the camera (like the real app) so recordings have sound;
       // if it's refused, carry on with video only
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: S.recordAudio, video: videoC });
+        stream = await navigator.mediaDevices.getUserMedia({ audio: S.realRecord && S.recordAudio, video: videoC });
       } catch (e) {
-        if (!S.recordAudio) throw e;
+        if (!(S.realRecord && S.recordAudio)) throw e;
         stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: videoC });
       }
       video.srcObject = stream;
@@ -744,8 +744,17 @@
     sctx.drawImage(layer, 0, 0);
   }
 
+  let cueShown = false;
+  function setCue(on) {
+    if (on === cueShown) return;
+    cueShown = on;
+    $('fpsBtn').classList.toggle('cue', on);
+  }
+
   function runTimed(now) {
     measureScene();
+    // secret cue: from cueLead seconds before the card starts until it starts
+    setCue(!!seq && now >= seq.start - S.cueLead * 1000 && now < seq.start);
     if (!S.armed || !settingsEl.hidden) return;
     if (S.mask === 'always' && !plateReady && liveFrames > 30) capturePlate();
     let pose = null;
@@ -1112,7 +1121,7 @@
       el.oninput = el.onchange = () => {
         S[key] = el.type === 'checkbox' ? el.checked : el.tagName === 'SELECT' ? el.value : parseFloat(el.value);
         if (/^mask/.test(key)) invalidatePlate();
-        if (key === 'recordAudio') startCamera();
+        if (key === 'recordAudio' || key === 'realRecord') startCamera();
         saveSettings();
         refreshOutputs();
       };
@@ -1128,7 +1137,7 @@
   }
   function openSettings() { bindSettings(); renderCards(); settingsEl.hidden = false; }
   function closeSettings() {
-    settingsEl.hidden = true; resetBackground(); track = null; seq = null;
+    settingsEl.hidden = true; resetBackground(); track = null; seq = null; setCue(false);
     if (S.level) enableMotion();   // iOS only allows the motion permission prompt from a tap
   }
   $('closeSettings').addEventListener('click', closeSettings);
@@ -1182,8 +1191,14 @@
 
   // video-mode format badges
   $('resBtn').addEventListener('click', (e) => { e.target.textContent = e.target.textContent === '4K' ? 'HD' : '4K'; });
+  // the iPhone draws its zeros with a slash; the slash disappearing is the performer's cue
   const rates = ['30', '60', '24'];
-  $('fpsBtn').addEventListener('click', (e) => { e.target.textContent = rates[(rates.indexOf(e.target.textContent) + 1) % rates.length]; });
+  let rate = '30';
+  function renderFps() {
+    $('fpsBtn').innerHTML = rate.replace(/0/g, '<span class="zero">0</span>');
+  }
+  $('fpsBtn').addEventListener('click', () => { rate = rates[(rates.indexOf(rate) + 1) % rates.length]; renderFps(); });
+  renderFps();
 
   // ---- level: iOS draws a white and a yellow cross when the phone lies flat; they meet when level
   const levelEl = $('level');
@@ -1251,6 +1266,7 @@
     recStart = performance.now(); updateRecTime();
     recTick = setInterval(updateRecTime, 250);
     recChunks = [];
+    if (!S.realRecord) return;      // just the recording look; real recording is an optional extra
     try {
       const types = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
       const type = window.MediaRecorder && types.find((t) => MediaRecorder.isTypeSupported(t));

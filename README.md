@@ -32,11 +32,16 @@ fingers in front of it.
 | Gesture | Action |
 |---|---|
 | Long-press photo thumbnail (bottom left) | Settings |
-| Two-finger tap on picture | Arm / disarm overlay |
+| Two-finger tap on picture | Start the fake card (after the start delay, 5 s by default) |
 | Three-finger tap on picture | Next card |
 | One-finger tap | Yellow focus square (like the real app) |
 | Tap VIDEO / PHOTO in the mode pill | Switch mode |
-| Record button | Really records the screen (overlay included); tap the thumbnail to play back / share |
+| Record button | Shows the recording look only (real recording is an optional bonus in settings) |
+
+## Timing cue
+The 0 in the "30" under "4K" is drawn with a slash, as on a real iPhone. The slash disappears
+(0 becomes O) one second before the fake card starts, so you know when to move. Both the start
+delay and the cue lead time are adjustable in settings.
 
 ## Card library (Settings → Cards)
 - **Take Photo / Choose Photo / Use Front Camera** to add a card. Any angle and light is fine.

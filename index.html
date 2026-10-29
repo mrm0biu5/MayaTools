@@ -11,13 +11,13 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="manifest" href="manifest.webmanifest">
 <title>Camera</title>
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 <div id="app" class="mode-video">
   <header id="topbar">
     <i id="armDot"></i>
-    <span id="versionTag">v9</span>
+    <span id="versionTag">v10</span>
     <div class="tb-right photo-only">
       <button class="pill circ off" id="liveBtn" aria-label="Live Photo">
         <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="2.6" fill="currentColor"/><circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="0.1 2.3" stroke-linecap="round"/><path class="slash" d="M4.2 4.2 19.8 19.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -93,7 +93,7 @@
 <div id="settings" hidden>
   <div class="sheet">
     <div class="sheet-head">
-      <h1>Trick Settings <small id="versionTitle">v9</small></h1>
+      <h1>Trick Settings <small id="versionTitle">v10</small></h1>
       <button id="closeSettings">Done</button>
     </div>
 
@@ -103,7 +103,7 @@
         <select data-key="trick"><option value="timed">Timed fake card</option><option value="tracked">Replace real card (tracking)</option></select></label>
       <label class="row"><span>Armed</span><input type="checkbox" class="switch" data-key="armed"></label>
       <label class="row"><span>Start with</span>
-        <select data-key="trigger"><option value="both">Two-finger tap or Record</option><option value="tap">Two-finger tap</option><option value="record">Record button</option></select></label>
+        <select data-key="trigger"><option value="tap">Two-finger tap</option><option value="both">Two-finger tap or Record</option><option value="record">Record button</option></select></label>
       <div class="row buttons"><button class="btn" id="previewBtn">Preview Animation</button></div>
     </div>
 
@@ -117,7 +117,8 @@
           <option value="rise-exit">Up from bottom, off the top</option>
           <option value="drop">Down from top, back up</option>
         </select></label>
-      <label class="row col"><span>Start delay <b data-out="delay"></b> s</span><input type="range" min="0" max="5" step="0.1" data-key="delay"></label>
+      <label class="row col"><span>Start delay <b data-out="delay"></b> s</span><input type="range" min="0" max="20" step="0.5" data-key="delay"></label>
+      <label class="row col"><span>Cue (slash leaves the 0 in “30”) <b data-out="cueLead"></b> s before</span><input type="range" min="0.5" max="5" step="0.5" data-key="cueLead"></label>
       <label class="row col"><span>Travel time <b data-out="dur"></b> s</span><input type="range" min="0.4" max="8" step="0.1" data-key="dur"></label>
       <label class="row col"><span>Pause in the middle <b data-out="pause"></b> s</span><input type="range" min="0" max="4" step="0.1" data-key="pause"></label>
       <label class="row col"><span>Card size <b data-out="cardW"></b>% of width</span><input type="range" min="25" max="120" step="1" data-key="cardW"></label>
@@ -144,6 +145,7 @@
     <h2>Camera look</h2>
     <div class="group">
       <label class="row"><span>Grid lines</span><input type="checkbox" class="switch" data-key="grid"></label>
+      <label class="row"><span>Really record video (bonus)</span><input type="checkbox" class="switch" data-key="realRecord"></label>
       <label class="row"><span>Record sound (microphone)</span><input type="checkbox" class="switch" data-key="recordAudio"></label>
       <label class="row"><span>Show version number</span><input type="checkbox" class="switch" data-key="showVersion"></label>
       <label class="row"><span>Level crosshair (phone flat)</span><input type="checkbox" class="switch" data-key="level"></label>
@@ -197,6 +199,6 @@
   </div>
 </div>
 
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>
