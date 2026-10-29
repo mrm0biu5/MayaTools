@@ -22,7 +22,11 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
   };
   const DEFAULTS = {
-    armed: true, activeCard: BUILTIN_ID, mode: 'video', grid: true, level: true, mirrorOverlay: true, flip180: false, fingers: true, showDot: true,
+    armed: true, activeCard: BUILTIN_ID, mode: 'video', grid: true, level: true,
+    // timed trick: a fake card animates over the live picture while the bottom is masked
+    trick: 'timed', path: 'swipe-rl', trigger: 'both', dur: 1.6, pause: 0.3, delay: 0,
+    cardW: 62, cardY: 62, tilt: 0, shade: 18, wobble: true,
+    mask: 'always', maskH: 40, maskFeather: 10, maskAfter: 1.5, mirrorOverlay: true, flip180: false, fingers: true, showDot: true,
     margin: 4, smooth: 10, hold: 4, cardS: 50,
     bright: 70, maxSat: 30, minSize: 2, useBg: true, bgDiff: 20, debug: false,
   };
@@ -103,6 +107,7 @@
       await video.play();
       $('camError').hidden = true;
       resetBackground();
+      invalidatePlate();
     } catch (e) {
       $('camErrorMsg').textContent = location.protocol !== 'https:' && location.hostname !== 'localhost'
         ? 'The camera only works when this page is opened over https://'
@@ -132,6 +137,7 @@
     queue = new Int32Array(N); bx = new Float32Array(N); by = new Float32Array(N); sk = new Uint8Array(N);
     skinData = skctx.createImageData(DW, DH);
     resetBackground();
+    invalidatePlate();
     track = null;
   }
 
@@ -503,13 +509,177 @@
     if (video.readyState >= 2 && video.videoWidth && W) {
       drawCover(sctx, W, H, mirrored());
       drawCover(dctx, DW, DH, mirrored());
-      const raw = detect();
-      const t = updateTrack(raw);
-      if (grab) handleGrab(raw);
-      else if (t && S.armed && settingsEl.hidden) drawOverlay(t);
-      if (S.debug || grab) drawDebug(raw, t);
+      liveFrames++;
+      if (S.trick === 'timed' && !grab) {
+        runTimed(now);
+      } else {
+        const raw = detect();
+        const t = updateTrack(raw);
+        if (grab) handleGrab(raw);
+        else if (t && S.armed && settingsEl.hidden) drawOverlay(t);
+        if (S.debug || grab) drawDebug(raw, t);
+      }
     }
     requestAnimationFrame(loop);
+  }
+
+  // ---------------------------------------------------------------- timed trick
+  // The bottom of the picture is replaced by a still frame of the empty scene ("clean plate"),
+  // so the real card moving there is never seen, and a fake card plays a pre-set path on top.
+  const plateCv = document.createElement('canvas');
+  const pctx = plateCv.getContext('2d');
+  let plateReady = false, plateMean = 1, liveFrames = 0, seq = null, maskUntil = 0;
+  const scene = { mean: 1, band: 1, rgb: [255, 255, 255] };
+  let plateBand = 1;
+
+  const maskTop = () => H * (1 - S.maskH / 100);
+
+  // brightness/colour of the live picture above the mask, from the low-res detection frame
+  function measureScene() {
+    const data = dctx.getImageData(0, 0, DW, DH).data;
+    const yEnd = Math.max(1, Math.floor(DH * (1 - S.maskH / 100) - DH * S.maskFeather / 200));
+    let r = 0, g = 0, b = 0, n = 0;
+    for (let y = 0; y < yEnd; y += 2) {
+      for (let x = 0, p = y * DW * 4; x < DW; x += 2, p += 8) { r += data[p]; g += data[p + 1]; b += data[p + 2]; n++; }
+    }
+    n = Math.max(1, n);
+    scene.rgb = [r / n, g / n, b / n];
+    scene.mean = Math.max(1, (0.299 * r + 0.587 * g + 0.114 * b) / n);
+    // the strip just above the mask is what the frozen part has to blend into
+    const bandStart = Math.max(0, yEnd - Math.round(DH * 0.12));
+    let l = 0, m = 0;
+    for (let y = bandStart; y < yEnd; y++) {
+      for (let x = 0, p = y * DW * 4; x < DW; x++, p += 4) { l += 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2]; m++; }
+    }
+    scene.band = Math.max(1, l / Math.max(1, m));
+  }
+
+  function capturePlate() {
+    if (!W || video.readyState < 2) return;
+    plateCv.width = W; plateCv.height = H;
+    pctx.globalCompositeOperation = 'source-over';
+    pctx.clearRect(0, 0, W, H);
+    drawCover(pctx, W, H, mirrored());
+    plateMean = scene.mean;
+    plateBand = scene.band;
+    plateReady = true;
+  }
+  function invalidatePlate() { plateReady = false; liveFrames = 0; }
+
+  function drawPlate() {
+    // follow the iPhone's auto-exposure so the frozen part doesn't drift from the live part
+    const gain = scene.band / plateBand;
+    lctx.setTransform(1, 0, 0, 1, 0, 0);
+    lctx.globalCompositeOperation = 'source-over';
+    lctx.clearRect(0, 0, W, H);
+    lctx.drawImage(plateCv, 0, 0);
+    if (gain < 0.98) {            // darker: plate x gain
+      lctx.globalCompositeOperation = 'source-atop';
+      lctx.fillStyle = `rgba(0,0,0,${Math.min(0.8, 1 - gain)})`;
+      lctx.fillRect(0, 0, W, H);
+    } else if (gain > 1.02) {     // brighter: plate + plate x (gain - 1)
+      lctx.globalCompositeOperation = 'lighter';
+      lctx.globalAlpha = Math.min(1, gain - 1);
+      lctx.drawImage(plateCv, 0, 0);
+      lctx.globalAlpha = 1;
+    }
+    // then keep only the bottom part, with a soft top edge (after the gain, so the edge blends)
+    const top = maskTop(), f = Math.max(1, H * S.maskFeather / 100);
+    const grad = lctx.createLinearGradient(0, top - f / 2, 0, top + f / 2);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,1)');
+    lctx.globalCompositeOperation = 'destination-in';
+    lctx.fillStyle = grad;
+    lctx.fillRect(0, 0, W, H);
+    lctx.globalCompositeOperation = 'source-over';
+    sctx.drawImage(layer, 0, 0);
+  }
+
+  function triggerSequence() {
+    if (S.trick !== 'timed' || !S.armed) return;
+    if (S.mask === 'during' || !plateReady) capturePlate();
+    seq = { start: performance.now() + S.delay * 1000 };
+  }
+
+  const smooth = (x) => x * x * (3 - 2 * x);
+  const lerp = (a, b, u) => a + (b - a) * u;
+
+  // where the fake card is at time t; null = not on screen yet, 'done' = finished
+  function cardPose(now) {
+    const t = (now - seq.start) / 1000;
+    if (t < 0) return null;
+    const half = S.dur / 2, total = S.dur + S.pause;
+    if (t > total) return 'done';
+    let u;   // 0 = start of path, 0.5 = resting point, 1 = end
+    if (S.pause <= 0.01) u = lerp(t / S.dur, smooth(t / S.dur), 0.5);
+    else if (t < half) u = 0.5 * (1 - (1 - t / half) ** 2);                    // ease out into the middle
+    else if (t < half + S.pause) u = 0.5;
+    else u = 0.5 + 0.5 * ((t - half - S.pause) / half) ** 2;                    // ease in on the way out
+    const s = W * S.cardW / 100, l = s * CARD_ASPECT;
+    const cy = H * S.cardY / 100, cx = W / 2;
+    const offX = W / 2 + s * 0.75, offBottom = H + l * 0.6 - cy, offTop = cy + l * 0.6;
+    const seg = (a, mid, b) => (u < 0.5 ? lerp(a, mid, u * 2) : lerp(mid, b, u * 2 - 1));
+    let x = cx, y = cy;
+    switch (S.path) {
+      case 'swipe-lr': x = seg(cx - offX, cx, cx + offX); break;
+      case 'rise': y = seg(cy + offBottom, cy, cy + offBottom); break;
+      case 'rise-exit': y = seg(cy + offBottom, cy, cy - offTop); break;
+      case 'drop': y = seg(cy - offTop, cy, cy - offTop); break;
+      default: x = seg(cx + offX, cx, cx - offX);                              // swipe-rl
+    }
+    let theta = S.tilt * Math.PI / 180;
+    if (S.wobble) {   // a hand never holds a card perfectly still
+      theta += Math.sin(t * 2.3) * 0.025 + Math.sin(t * 5.1 + 1) * 0.01;
+      x += Math.sin(t * 3.1 + 2) * W * 0.004;
+      y += Math.sin(t * 2.7) * W * 0.004;
+    }
+    return { x, y, s, l, theta };
+  }
+
+  function drawFakeCard(p) {
+    const card = activeCard();
+    const img = cardImage(card);
+    if (!ready(img)) return;
+    lctx.setTransform(1, 0, 0, 1, 0, 0);
+    lctx.globalCompositeOperation = 'source-over';
+    lctx.clearRect(0, 0, W, H);
+    lctx.save();
+    lctx.translate(p.x, p.y);
+    lctx.rotate(p.theta + (S.flip180 ? Math.PI : 0));
+    if (S.mirrorOverlay && mirrored()) lctx.scale(-1, 1);
+    lctx.drawImage(img, -p.s / 2, -p.l / 2, p.s, p.l);
+    // a card this close to the lens is in its own shadow and picks up the room's colour
+    const mx = Math.max(...scene.rgb, 1);
+    const base = 255 * (1 - S.shade / 100);
+    const c = scene.rgb.map((v) => Math.round(base * (0.75 + 0.25 * v / mx)));
+    if (S.shade > 0 || c.some((v) => v < 254)) {
+      lctx.globalCompositeOperation = 'multiply';
+      lctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+      lctx.fillRect(-p.s / 2, -p.l / 2, p.s, p.l);
+      lctx.globalCompositeOperation = 'destination-in';
+      lctx.drawImage(img, -p.s / 2, -p.l / 2, p.s, p.l);
+    }
+    lctx.restore();
+    sctx.drawImage(layer, 0, 0);
+  }
+
+  function runTimed(now) {
+    measureScene();
+    if (!S.armed || !settingsEl.hidden) return;
+    if (S.mask === 'always' && !plateReady && liveFrames > 30) capturePlate();
+    let pose = null;
+    if (seq) {
+      pose = cardPose(now);
+      if (pose === 'done') { seq = null; pose = null; maskUntil = now + S.maskAfter * 1000; }
+    }
+    const masking = plateReady && (S.mask === 'always' || (S.mask === 'during' && (seq || now < maskUntil)));
+    if (masking) drawPlate();
+    if (pose) drawFakeCard(pose);
+    if (S.debug) {
+      sctx.strokeStyle = '#ff3b30'; sctx.lineWidth = 2; sctx.setLineDash([10, 8]);
+      sctx.beginPath(); sctx.moveTo(0, maskTop()); sctx.lineTo(W, maskTop()); sctx.stroke();
+      sctx.setLineDash([]);
+    }
   }
 
   // ---------------------------------------------------------------- grab card from camera
@@ -615,6 +785,8 @@
   $('matchToggle').addEventListener('change', (e) => { activeCard().match = e.target.checked; saveCards(); });
   $('fileInput').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) loadPhoto(f); e.target.value = ''; });
   $('grabBtn').addEventListener('click', startGrab);
+  $('previewBtn').addEventListener('click', () => { closeSettings(); setTimeout(triggerSequence, 400); });
+  $('replateBtn').addEventListener('click', () => { invalidatePlate(); toast('Mask will re-capture – keep the bottom clear', 1800); });
 
   // ---------------------------------------------------------------- settings panel
   const settingsEl = $('settings');
@@ -624,7 +796,8 @@
       if (el.type === 'checkbox') el.checked = !!S[key];
       else el.value = S[key];
       el.oninput = el.onchange = () => {
-        S[key] = el.type === 'checkbox' ? el.checked : parseFloat(el.value);
+        S[key] = el.type === 'checkbox' ? el.checked : el.tagName === 'SELECT' ? el.value : parseFloat(el.value);
+        if (/^mask/.test(key)) invalidatePlate();
         saveSettings();
         refreshOutputs();
       };
@@ -639,7 +812,7 @@
   }
   function openSettings() { bindSettings(); renderCards(); settingsEl.hidden = false; }
   function closeSettings() {
-    settingsEl.hidden = true; resetBackground(); track = null;
+    settingsEl.hidden = true; resetBackground(); track = null; seq = null;
     if (S.level) enableMotion();   // iOS only allows the motion permission prompt from a tap
   }
   $('closeSettings').addEventListener('click', closeSettings);
@@ -754,6 +927,7 @@
   }
   function startRecording() {
     app.classList.add('recording');
+    if (S.trigger !== 'tap') triggerSequence();
     recStart = performance.now(); updateRecTime();
     recTick = setInterval(updateRecTime, 250);
     recChunks = [];
@@ -839,7 +1013,7 @@
     const g = gesture; gesture = null;
     if (g.moved || performance.now() - g.start > 600) return;
     if (g.max === 1) showFocus(g.x, g.y);
-    else if (g.max === 2) toggleArmed();
+    else if (g.max === 2) (S.trick === 'timed' && S.trigger !== 'record' ? triggerSequence() : toggleArmed());
     else if (g.max >= 3) nextCard();
   });
   viewport.addEventListener('click', (e) => { if (e.pointerType !== 'touch') showFocus(e.clientX, e.clientY); });
@@ -853,7 +1027,7 @@
   }
   function toggleArmed() {
     S.armed = !S.armed; saveSettings(); refreshOutputs();
-    if (S.armed) { resetBackground(); track = null; }
+    if (S.armed) { resetBackground(); track = null; invalidatePlate(); }
   }
   function nextCard() {
     const i = cards.findIndex((c) => c.id === activeCard().id);
@@ -867,13 +1041,14 @@
     if (e.key === 's') openSettings();
     if (e.key === 'a') toggleArmed();
     if (e.key === 'n') nextCard();
+    if (e.key === 't') triggerSequence();
     if (e.key === 'd') { S.debug = !S.debug; saveSettings(); }
   });
 
   // ---------------------------------------------------------------- boot
   window.addEventListener('resize', () => { resize(); centerMode(); });
   window.addEventListener('orientationchange', () => setTimeout(resize, 300));
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) resetBackground(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { resetBackground(); invalidatePlate(); } });
   setMode(mode, false);
   resize();
   if (!(window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function')) enableMotion();

@@ -228,3 +228,7 @@ input[type=range] { width: 100%; accent-color: #0a84ff; }
   position: absolute; top: -6px; right: 0; width: 24px; height: 24px; border-radius: 50%;
   background: #ff453a; color: #fff; font-size: 16px; line-height: 24px; text-align: center;
 }
+.row select {
+  -webkit-appearance: none; appearance: none; background: #2c2c2e; color: #0a84ff; border: 0;
+  border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 15px; max-width: 60%; text-align: right;
+}

@@ -5,6 +5,14 @@ held flat over the phone comes into view, the app finds it live and draws your c
 it. The overlay follows position, size and rotation, matches the room's lighting, and keeps your
 fingers in front of it.
 
+## Two trick types (Settings → Trick → Type)
+- **Timed fake card** (default): a still frame of the empty scene covers the bottom of the picture, so
+  your real card moving there is never seen. A fake card (your chosen force card) plays a pre-set path
+  over the live video, and you time your hand to match it. Start it with a two-finger tap or the
+  Record button. Path, timing, pause, size, height, tilt, shadow and mask height are all adjustable,
+  and Preview Animation lets you rehearse.
+- **Replace real card (tracking)**: finds the real card live and draws the force card over it.
+
 ## Install on iPhone
 1. Host the folder over **https**: GitHub Pages (Settings → Pages → deploy from this branch, root),
    or drag the folder onto https://app.netlify.com/drop.

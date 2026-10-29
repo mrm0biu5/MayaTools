@@ -82,6 +82,47 @@
       <button id="closeSettings">Done</button>
     </div>
 
+    <h2>Trick</h2>
+    <div class="group">
+      <label class="row"><span>Type</span>
+        <select data-key="trick"><option value="timed">Timed fake card</option><option value="tracked">Replace real card (tracking)</option></select></label>
+      <label class="row"><span>Armed</span><input type="checkbox" class="switch" data-key="armed"></label>
+      <label class="row"><span>Start with</span>
+        <select data-key="trigger"><option value="both">Two-finger tap or Record</option><option value="tap">Two-finger tap</option><option value="record">Record button</option></select></label>
+      <div class="row buttons"><button class="btn" id="previewBtn">Preview Animation</button></div>
+    </div>
+
+    <h2>Timed fake card – movement</h2>
+    <div class="group">
+      <label class="row"><span>Path</span>
+        <select data-key="path">
+          <option value="swipe-rl">Swipe right → left</option>
+          <option value="swipe-lr">Swipe left → right</option>
+          <option value="rise">Up from bottom, back down</option>
+          <option value="rise-exit">Up from bottom, off the top</option>
+          <option value="drop">Down from top, back up</option>
+        </select></label>
+      <label class="row col"><span>Start delay <b data-out="delay"></b> s</span><input type="range" min="0" max="5" step="0.1" data-key="delay"></label>
+      <label class="row col"><span>Travel time <b data-out="dur"></b> s</span><input type="range" min="0.4" max="5" step="0.1" data-key="dur"></label>
+      <label class="row col"><span>Pause in the middle <b data-out="pause"></b> s</span><input type="range" min="0" max="4" step="0.1" data-key="pause"></label>
+      <label class="row col"><span>Card size <b data-out="cardW"></b>% of width</span><input type="range" min="25" max="120" step="1" data-key="cardW"></label>
+      <label class="row col"><span>Height on screen <b data-out="cardY"></b>%</span><input type="range" min="10" max="95" step="1" data-key="cardY"></label>
+      <label class="row col"><span>Tilt <b data-out="tilt"></b>°</span><input type="range" min="-45" max="45" step="1" data-key="tilt"></label>
+      <label class="row col"><span>Shadow on card <b data-out="shade"></b>%</span><input type="range" min="0" max="60" step="1" data-key="shade"></label>
+      <label class="row"><span>Hand wobble</span><input type="checkbox" class="switch" data-key="wobble"></label>
+    </div>
+
+    <h2>Timed fake card – bottom mask</h2>
+    <div class="group">
+      <label class="row"><span>Mask</span>
+        <select data-key="mask"><option value="always">Always on</option><option value="during">Only during the card</option><option value="off">Off</option></select></label>
+      <label class="row col"><span>Mask height <b data-out="maskH"></b>% of screen</span><input type="range" min="5" max="90" step="1" data-key="maskH"></label>
+      <label class="row col"><span>Soft edge <b data-out="maskFeather"></b>%</span><input type="range" min="0" max="30" step="1" data-key="maskFeather"></label>
+      <label class="row col"><span>Keep mask after card <b data-out="maskAfter"></b> s</span><input type="range" min="0" max="6" step="0.1" data-key="maskAfter"></label>
+      <div class="row buttons"><button class="btn" id="replateBtn">Re-capture Mask</button></div>
+      <p class="hint">The mask is a still photo of the bottom of the scene, taken a second after the camera starts (or when the card starts, in “Only during” mode). Keep that area empty when it's taken. Turn on Show debug view to see the mask line.</p>
+    </div>
+
     <h2>Camera look</h2>
     <div class="group">
       <label class="row"><span>Grid lines</span><input type="checkbox" class="switch" data-key="grid"></label>
@@ -91,7 +132,6 @@
 
     <h2>Overlay</h2>
     <div class="group">
-      <label class="row"><span>Armed</span><input type="checkbox" class="switch" data-key="armed"></label>
       <label class="row"><span>Mirror overlay (selfie view)</span><input type="checkbox" class="switch" data-key="mirrorOverlay"></label>
       <label class="row"><span>Rotate overlay 180°</span><input type="checkbox" class="switch" data-key="flip180"></label>
       <label class="row"><span>Fingers in front of card</span><input type="checkbox" class="switch" data-key="fingers"></label>
@@ -112,7 +152,7 @@
       <p class="hint">Best realism: hold your real replacement card flat over the camera and use <b>Grab From Camera</b>, so it's shot under the same light. Uploaded photos should be cropped tightly to the card.</p>
     </div>
 
-    <h2>Detection</h2>
+    <h2>Tracking mode – detection</h2>
     <div class="group">
       <label class="row col"><span>Min card brightness <b data-out="bright"></b></span><input type="range" min="20" max="245" step="1" data-key="bright"></label>
       <label class="row col"><span>Max colour (saturation) <b data-out="maxSat"></b>%</span><input type="range" min="5" max="60" step="1" data-key="maxSat"></label>
@@ -127,7 +167,7 @@
     <h2>Secret controls</h2>
     <div class="group help">
       <p><b>Long-press</b> the photo thumbnail → this panel. Tap VIDEO / PHOTO to switch modes. The record button really records (the overlay included) – tap the thumbnail to play it back or share it.</p>
-      <p><b>Two-finger tap</b> on the picture → arm / disarm overlay.</p>
+      <p><b>Two-finger tap</b> on the picture → start the fake card (timed mode) / arm-disarm (tracking mode). Pressing <b>Record</b> can also start it.</p>
       <p><b>Three-finger tap</b> on the picture → next card.</p>
       <p>Phone face up, front camera, still. Let it see the empty scene for a second before the card comes in (it learns the background). The card can be darker or lighter than the background – it just has to be different, white-ish and flat to the lens.</p>
       <p>"Card size when cut off" is learnt automatically each time the whole card is seen; it's used to place the card while it's still sliding in.</p>
