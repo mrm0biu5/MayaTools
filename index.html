@@ -11,13 +11,13 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="manifest" href="manifest.webmanifest">
 <title>Camera</title>
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
 <div id="app" class="mode-video">
   <header id="topbar">
     <i id="armDot"></i>
-    <span id="versionTag">v14</span>
+    <span id="versionTag">v15</span>
     <div class="tb-right photo-only">
       <button class="pill circ off" id="liveBtn" aria-label="Live Photo">
         <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="2.6" fill="currentColor"/><circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="0.1 2.3" stroke-linecap="round"/><path class="slash" d="M4.2 4.2 19.8 19.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -93,7 +93,7 @@
 <div id="settings" hidden>
   <div class="sheet">
     <div class="sheet-head">
-      <h1>Trick Settings <small id="versionTitle">v14</small></h1>
+      <h1>Trick Settings <small id="versionTitle">v15</small></h1>
       <button id="closeSettings">Done</button>
     </div>
 
@@ -125,10 +125,16 @@
       <label class="row col"><span>Card centre height <b data-out="cardY"></b>% (100 = half off the bottom)</span><input type="range" min="10" max="140" step="1" data-key="cardY"></label>
       <label class="row col"><span>Resting point across <b data-out="restX"></b>%</span><input type="range" min="0" max="100" step="1" data-key="restX"></label>
       <label class="row col"><span>Tilt <b data-out="tilt"></b>°</span><input type="range" min="-45" max="45" step="1" data-key="tilt"></label>
+      <label class="row"><span>Hand wobble</span><input type="checkbox" class="switch" data-key="wobble"></label>
+    </div>
+
+    <h2>Card look</h2>
+    <div class="group">
+      <div class="look-wrap"><canvas id="lookPreview"></canvas></div>
+      <label class="row col"><span>Blur (out of focus) <b data-out="blur"></b>%</span><input type="range" min="0" max="100" step="1" data-key="blur"></label>
       <label class="row col"><span>Card brightness vs room <b data-out="cardBright"></b>%</span><input type="range" min="50" max="150" step="1" data-key="cardBright"></label>
       <label class="row col"><span>Camera grain <b data-out="grain"></b>%</span><input type="range" min="0" max="100" step="1" data-key="grain"></label>
-      <label class="row col"><span>Out of focus <b data-out="blur"></b>%</span><input type="range" min="0" max="100" step="1" data-key="blur"></label>
-      <label class="row"><span>Hand wobble</span><input type="checkbox" class="switch" data-key="wobble"></label>
+      <p class="hint">Preview shows the selected card over what the camera sees right now.</p>
     </div>
 
     <h2>Timed fake card – bottom mask</h2>
@@ -199,6 +205,6 @@
   </div>
 </div>
 
-<script src="app.js?v=14"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

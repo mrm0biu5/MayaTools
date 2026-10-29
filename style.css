@@ -263,3 +263,5 @@ input[type=range] { width: 100%; accent-color: #0a84ff; }
 .ed-tools p { margin: 0; font-size: 13px; color: #8e8e93; }
 .ed-btns { display: flex; gap: 8px; }
 .ed-match { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.look-wrap { padding: 14px 16px 4px; display: flex; justify-content: center; border-bottom: 0.5px solid #38383a; }
+#lookPreview { width: 180px; height: 240px; border-radius: 10px; background: #333; }

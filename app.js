@@ -16,7 +16,7 @@
   const skctx = skinCv.getContext('2d');
 
   // keep in step with version.json and the ?v= in index.html
-  const APP_VERSION = '14';
+  const APP_VERSION = '15';
   const CARD_W = 500, CARD_H = 700;
   const CARD_ASPECT = CARD_H / CARD_W;                     // long / short (poker card 88.9 x 63.5mm)
   const BUILTIN_ID = 'builtin-3c';
@@ -30,13 +30,13 @@
     armed: true, activeCard: BUILTIN_ID, mode: 'video', grid: true, level: true, showVersion: true, realRecord: false, recordAudio: false,
     // timed trick: a fake card animates over the live picture while the bottom is masked
     trick: 'timed', path: 'swipe-rl', trigger: 'tap', dur: 3.2, pause: 0.6, delay: 5, cueLead: 1,
-    cardW: 78, cardY: 95, restX: 58, tilt: -4, cardBright: 100, grain: 30, blur: 35, wobble: true,
+    cardW: 78, cardY: 95, restX: 58, tilt: -4, cardBright: 100, grain: 30, blur: 20, wobble: true,
     mask: 'off', maskH: 40, maskFeather: 10, maskAfter: 1.5, mirrorOverlay: true, flip180: false, fingers: true, showDot: true,
     margin: 4, smooth: 10, hold: 4, cardS: 50,
     bright: 70, maxSat: 30, minSize: 2, useBg: true, bgDiff: 20, debug: false,
   };
   // bump when the default card movement changes, so phones that already saved settings pick it up
-  const MOVEMENT_VERSION = 4;
+  const MOVEMENT_VERSION = 5;
   const MOVEMENT_KEYS = ['path', 'dur', 'pause', 'delay', 'cardW', 'cardY', 'restX', 'tilt', 'blur', 'mask', 'trigger', 'recordAudio'];
   const saved = store.get('ct.settings', {});
   if (saved.movementVersion !== MOVEMENT_VERSION) MOVEMENT_KEYS.forEach((k) => delete saved[k]);
@@ -679,27 +679,52 @@
     return { x, y, s, l, theta };
   }
 
-  // a card this close to the lens is out of focus: shrink then enlarge it for a soft, blurred look
+  // A card this close to the lens is out of focus. Blur it properly (premultiplied box blur x3, which is
+  // close to a lens blur) on a canvas with a transparent margin, so the edges soften outwards as well.
+  // Returns { img, pad } where pad is the margin in card pixels on each side.
   const softCache = new Map();
   function softCard(card, img) {
-    if (S.blur <= 0) return img;
-    const key = card.id + ':' + S.blur;
+    const r = Math.round(S.blur / 100 * 30);     // blur radius in card pixels (card is 500 wide)
+    if (r < 1) return { img, pad: 0 };
+    const key = card.id + ':' + r;
     if (softCache.has(key)) return softCache.get(key);
-    const make = (w, h) => { const c = document.createElement('canvas'); c.width = Math.round(w); c.height = Math.round(h); return c; };
-    const tw = Math.max(8, Math.round(CARD_W / (1 + S.blur / 100 * 7)));
-    let cur = make(CARD_W, CARD_H);
-    cur.getContext('2d').drawImage(img, 0, 0, CARD_W, CARD_H);
-    while (cur.width / 2 > tw) {     // halve in steps so it blurs smoothly instead of going blocky
-      const n = make(cur.width / 2, cur.height / 2);
-      n.getContext('2d').drawImage(cur, 0, 0, n.width, n.height);
-      cur = n;
+    const pad = r * 3, w = CARD_W + pad * 2, h = CARD_H + pad * 2;
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d');
+    g.drawImage(img, pad, pad, CARD_W, CARD_H);
+    const id = g.getImageData(0, 0, w, h), d = id.data, n = w * h;
+    const ch = [new Float32Array(n), new Float32Array(n), new Float32Array(n), new Float32Array(n)];
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      const a = d[p + 3] / 255;
+      ch[0][i] = d[p] * a; ch[1][i] = d[p + 1] * a; ch[2][i] = d[p + 2] * a; ch[3][i] = d[p + 3];
     }
-    const small = make(tw, tw * CARD_ASPECT);
-    small.getContext('2d').drawImage(cur, 0, 0, small.width, small.height);
-    const out = make(CARD_W, CARD_H);
-    const o = out.getContext('2d');
-    o.imageSmoothingQuality = 'high';
-    o.drawImage(small, 0, 0, CARD_W, CARD_H);
+    const tmp = new Float32Array(Math.max(w, h));
+    const blur1d = (arr, len, count, stride, step) => {   // running-sum box blur along rows or columns
+      const k = 1 / (2 * r + 1);
+      for (let line = 0; line < count; line++) {
+        const base = line * stride;
+        for (let i = 0; i < len; i++) tmp[i] = arr[base + i * step];
+        let acc = 0;
+        for (let i = -r; i <= r; i++) acc += tmp[Math.min(len - 1, Math.max(0, i))];
+        for (let i = 0; i < len; i++) {
+          arr[base + i * step] = acc * k;
+          acc += tmp[Math.min(len - 1, i + r + 1)] - tmp[Math.max(0, i - r)];
+        }
+      }
+    };
+    for (const arr of ch) {
+      for (let pass = 0; pass < 3; pass++) {
+        blur1d(arr, w, h, w, 1);     // horizontal
+        blur1d(arr, h, w, 1, w);     // vertical
+      }
+    }
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      const a = ch[3][i], inv = a > 0.5 ? 255 / a : 0;
+      d[p] = ch[0][i] * inv; d[p + 1] = ch[1][i] * inv; d[p + 2] = ch[2][i] * inv; d[p + 3] = a;
+    }
+    g.putImageData(id, 0, 0);
+    const out = { img: c, pad };
+    if (softCache.size > 12) softCache.clear();
     softCache.set(key, out);
     return out;
   }
@@ -718,42 +743,65 @@
     return grainPat;
   }
 
-  function drawFakeCard(p) {
+  // draw the fake card at p = {x, y, s, l, theta} onto ctx, using scratch (same size as ctx's canvas)
+  function renderCard(ctx, scratch, p) {
     const card = activeCard();
     const raw = cardImage(card);
     if (!ready(raw)) return;
-    const img = softCard(card, raw);
-    lctx.setTransform(1, 0, 0, 1, 0, 0);
-    lctx.globalCompositeOperation = 'source-over';
-    lctx.clearRect(0, 0, W, H);
-    lctx.save();
-    lctx.translate(p.x, p.y);
-    lctx.rotate(p.theta + (S.flip180 ? Math.PI : 0));
-    if (S.mirrorOverlay && mirrored()) lctx.scale(-1, 1);
-    lctx.drawImage(img, -p.s / 2, -p.l / 2, p.s, p.l);
+    const { img, pad } = softCard(card, raw);
+    // the blurred image has a margin around the card: grow the drawn rectangle to match
+    const ex = p.s * pad / CARD_W, ey = p.l * pad / CARD_H;
+    const x0 = -p.s / 2 - ex, y0 = -p.l / 2 - ey, dw = p.s + ex * 2, dh = p.l + ey * 2;
+    const g = scratch.getContext('2d');
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalCompositeOperation = 'source-over';
+    g.clearRect(0, 0, scratch.width, scratch.height);
+    g.save();
+    g.translate(p.x, p.y);
+    g.rotate(p.theta + (S.flip180 ? Math.PI : 0));
+    if (S.mirrorOverlay && mirrored()) g.scale(-1, 1);
+    g.drawImage(img, x0, y0, dw, dh);
     // re-light: library cards are stored evenly lit (white paper), so tint them with the room's
     // current colour and brightness, as the camera sees it right now
     if (card.match !== false) {
       const c = scene.rgb.map((v) => Math.round(Math.min(255, v * S.cardBright / 100)));
-      lctx.globalCompositeOperation = 'multiply';
-      lctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
-      lctx.fillRect(-p.s / 2, -p.l / 2, p.s, p.l);
+      g.globalCompositeOperation = 'multiply';
+      g.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+      g.fillRect(x0, y0, dw, dh);
     }
     // sensor noise, so the card isn't cleaner than the live picture around it
     if (S.grain > 0) {
-      lctx.globalCompositeOperation = 'overlay';
-      lctx.globalAlpha = S.grain / 100 * 0.6;
-      lctx.fillStyle = grainPattern();
-      lctx.save();
-      lctx.translate(Math.random() * 64, Math.random() * 64);
-      lctx.fillRect(-p.s / 2 - 64, -p.l / 2 - 64, p.s + 128, p.l + 128);
-      lctx.restore();
-      lctx.globalAlpha = 1;
+      g.globalCompositeOperation = 'overlay';
+      g.globalAlpha = S.grain / 100 * 0.6;
+      g.fillStyle = grainPattern();
+      g.save();
+      g.translate(Math.random() * 64, Math.random() * 64);
+      g.fillRect(x0 - 64, y0 - 64, dw + 128, dh + 128);
+      g.restore();
+      g.globalAlpha = 1;
     }
-    lctx.globalCompositeOperation = 'destination-in';
-    lctx.drawImage(img, -p.s / 2, -p.l / 2, p.s, p.l);
-    lctx.restore();
-    sctx.drawImage(layer, 0, 0);
+    g.globalCompositeOperation = 'destination-in';
+    g.drawImage(img, x0, y0, dw, dh);
+    g.restore();
+    ctx.drawImage(scratch, 0, 0);
+  }
+  const drawFakeCard = (p) => renderCard(sctx, layer, p);
+
+  // live preview of the card's look inside settings, over the current camera picture
+  const lookCv = $('lookPreview'), lookScratch = document.createElement('canvas');
+  function drawLookPreview() {
+    if (settingsEl.hidden || !W) return;
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const cw = Math.round(lookCv.clientWidth * dpr), chh = Math.round(lookCv.clientHeight * dpr);
+    if (!cw || !chh) return;
+    if (lookCv.width !== cw || lookCv.height !== chh) { lookCv.width = lookScratch.width = cw; lookCv.height = lookScratch.height = chh; }
+    const g = lookCv.getContext('2d');
+    // background: the middle of the live picture
+    const k = W / cw * 0.75;
+    g.drawImage(screenCv, (W - cw * k) / 2, (H - chh * k) / 2, cw * k, chh * k, 0, 0, cw, chh);
+    // whole card, at the blur it will have on screen (blur scales with the card's size)
+    const s = cw * 0.62;
+    renderCard(g, lookScratch, { x: cw / 2, y: chh / 2, s, l: s * CARD_ASPECT, theta: S.tilt * Math.PI / 180 });
   }
 
   let cueShown = false;
@@ -1097,7 +1145,7 @@
       const label = document.createElement('span');
       label.textContent = card.name;
       item.appendChild(label);
-      item.addEventListener('click', () => { S.activeCard = card.id; saveSettings(); renderCards(); });
+      item.addEventListener('click', () => { S.activeCard = card.id; saveSettings(); renderCards(); drawLookPreview(); });
       if (!card.builtin) {
         const del = document.createElement('button');
         del.className = 'del'; del.textContent = '×';
@@ -1134,6 +1182,7 @@
         S[key] = el.type === 'checkbox' ? el.checked : el.tagName === 'SELECT' ? el.value : parseFloat(el.value);
         if (/^mask/.test(key)) invalidatePlate();
         if (key === 'recordAudio' || key === 'realRecord') startCamera();
+        drawLookPreview();
         saveSettings();
         refreshOutputs();
       };
@@ -1147,7 +1196,13 @@
     $('versionTag').classList.toggle('show', !!S.showVersion);
     updateLevel();
   }
-  function openSettings() { bindSettings(); renderCards(); settingsEl.hidden = false; }
+  let lookTimer = 0;
+  function openSettings() {
+    bindSettings(); renderCards(); settingsEl.hidden = false;
+    clearInterval(lookTimer);
+    lookTimer = setInterval(() => (settingsEl.hidden ? clearInterval(lookTimer) : drawLookPreview()), 250);
+    requestAnimationFrame(drawLookPreview);
+  }
   function closeSettings() {
     settingsEl.hidden = true; resetBackground(); track = null; seq = null; setCue(false);
     if (S.level) enableMotion();   // iOS only allows the motion permission prompt from a tap
