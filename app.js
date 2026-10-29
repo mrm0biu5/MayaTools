@@ -16,7 +16,7 @@
   const skctx = skinCv.getContext('2d');
 
   // keep in step with version.json and the ?v= in index.html
-  const APP_VERSION = '20';
+  const APP_VERSION = '21';
   const CARD_W = 500, CARD_H = 700;
   const CARD_ASPECT = CARD_H / CARD_W;                     // long / short (poker card 88.9 x 63.5mm)
   const BUILTIN_ID = 'builtin-3c';
@@ -40,7 +40,8 @@
   const MOVEMENT_KEYS = ['path', 'dur', 'pause', 'delay', 'cardW', 'cardY', 'restX', 'tilt', 'blur', 'mask', 'trigger', 'recordAudio'];
   const saved = store.get('ct.settings', {});
   if (saved.movementVersion !== MOVEMENT_VERSION) MOVEMENT_KEYS.forEach((k) => delete saved[k]);
-  const S = Object.assign({}, DEFAULTS, saved, { movementVersion: MOVEMENT_VERSION });
+  // always open in the timed trick; the tracking modes are experiments you switch on in settings
+  const S = Object.assign({}, DEFAULTS, saved, { movementVersion: MOVEMENT_VERSION, trick: 'timed' });
   const saveSettings = () => store.set('ct.settings', S);
 
   let cards = store.get('ct.cards', []);                  // [{id, name, src, match, builtin}]
