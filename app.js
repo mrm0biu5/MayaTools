@@ -16,7 +16,7 @@
   const skctx = skinCv.getContext('2d');
 
   // keep in step with version.json and the ?v= in index.html
-  const APP_VERSION = '17';
+  const APP_VERSION = '18';
   const CARD_W = 500, CARD_H = 700;
   const CARD_ASPECT = CARD_H / CARD_W;                     // long / short (poker card 88.9 x 63.5mm)
   const BUILTIN_ID = 'builtin-3c';
@@ -33,7 +33,7 @@
     cardW: 78, cardY: 95, restX: 58, tilt: -4, cardBright: 100, grain: 30, blur: 20, wobble: true,
     mask: 'off', maskH: 40, maskFeather: 10, maskAfter: 1.5, mirrorOverlay: true, flip180: false, fingers: true, showDot: true,
     margin: 4, smooth: 10, hold: 4, cardS: 50,
-    bright: 70, maxSat: 30, minSize: 2, useBg: true, bgDiff: 20, debug: false,
+    bright: 70, maxSat: 30, minSize: 2, useBg: true, bgDiff: 20, edges: true, edgeT: 7, debug: false,
   };
   // bump when the default card movement changes, so phones that already saved settings pick it up
   const MOVEMENT_VERSION = 5;
@@ -148,6 +148,7 @@
 
   // ---------------------------------------------------------------- sizing
   let W = 0, H = 0, DW = 150, DH = 200, N = 0;
+  let white, bgLum, edgeTmp;
   let lum, mask, labels, queue, bx, by, sk, skinData, lastPixels = null;
   let bgR = null, bgG = null, bgB = null, gain = 1;
 
@@ -175,6 +176,7 @@
     det.height = skinCv.height = DH;
     N = DW * DH;
     lum = new Float32Array(N); mask = new Uint8Array(N); labels = new Int32Array(N);
+    white = new Uint8Array(N); bgLum = new Float32Array(N); edgeTmp = new Uint8Array(N);
     queue = new Int32Array(N); bx = new Float32Array(N); by = new Float32Array(N); sk = new Uint8Array(N);
     skinData = skctx.createImageData(DW, DH);
     resetBackground();
@@ -220,14 +222,88 @@
   // The iPhone re-exposes when a card covers the lens; estimate that global brightness change
   // from the pixels that were background last frame so the whole scene doesn't light up as "card".
   function estimateGain(data) {
-    let sc = 0, sb = 0;
-    for (let i = 0, p = 0; i < N; i += 3, p += 12) {
-      if (mask[i]) continue;
-      sc += data[p] + data[p + 1] + data[p + 2];
-      sb += bgR[i] + bgG[i] + bgB[i];
+    // median brightness ratio (now / learnt) over pixels that are clearly background: not card-like last
+    // frame and away from where the card was. A median ignores whatever the card is covering.
+    const hist = new Uint32Array(151);   // ratio 0.5 .. 2.0 in steps of 0.01
+    let count = 0;
+    const t = track, k = t ? 1.4 : 0;
+    const cos = t ? Math.cos(t.theta) : 0, sin = t ? Math.sin(t.theta) : 0;
+    for (let y = 1; y < DH; y += 3) {
+      for (let x = 1; x < DW; x += 3) {
+        const i = y * DW + x;
+        if (mask[i]) continue;
+        if (t) {
+          const dx = x - t.cx, dy = y - t.cy;
+          if (Math.abs(dx * cos + dy * sin) < t.s / 2 * k && Math.abs(-dx * sin + dy * cos) < t.l / 2 * k) continue;
+        }
+        const p = i * 4;
+        const now = data[p] + data[p + 1] + data[p + 2], was = bgR[i] + bgG[i] + bgB[i];
+        if (was < 30) continue;
+        const r = Math.round((now / was - 0.5) * 100);
+        hist[Math.max(0, Math.min(150, r))]++; count++;
+      }
     }
-    const g = sb > 0 ? sc / sb : 1;
-    return Math.min(2, Math.max(0.5, g));
+    if (count < 50) return 1;
+    let acc = 0;
+    for (let b = 0; b <= 150; b++) { acc += hist[b]; if (acc >= count / 2) return 0.5 + b / 100; }
+    return 1;
+  }
+
+  // A card close to the lens is often about as bright as the ceiling behind it, but its outline and pips
+  // are sharp new lines that weren't in the empty scene. Mark edges that are stronger now than in the
+  // learnt background (allowing for exposure), thicken them, and add them to the card mask.
+  function addNewEdges(data) {
+    for (let i = 0; i < N; i++) bgLum[i] = (0.299 * bgR[i] + 0.587 * bgG[i] + 0.114 * bgB[i]) * gain;
+    const sob = (a, i) => {
+      const gx = a[i - DW + 1] + 2 * a[i + 1] + a[i + DW + 1] - a[i - DW - 1] - 2 * a[i - 1] - a[i + DW - 1];
+      const gy = a[i + DW - 1] + 2 * a[i + DW] + a[i + DW + 1] - a[i - DW - 1] - 2 * a[i - DW] - a[i - DW + 1];
+      return Math.abs(gx) + Math.abs(gy);
+    };
+    edgeTmp.fill(0);
+    const thr = S.edgeT * 4;
+    for (let y = 1; y < DH - 1; y++) {
+      for (let x = 1; x < DW - 1; x++) {
+        const i = y * DW + x;
+        if (sob(lum, i) - sob(bgLum, i) < thr) continue;
+        const p = i * 4, r = data[p], g = data[p + 1], b = data[p + 2];
+        const Cr = 128 + 0.5 * r - 0.4187 * g - 0.0813 * b, Cb = 128 - 0.1687 * r - 0.3313 * g + 0.5 * b;
+        if (Cr >= 138 && Cr <= 180 && Cb >= 77 && Cb <= 130) continue;      // finger, not card
+        edgeTmp[i] = 1;
+      }
+    }
+    // thicken by 2px so the outline and pips join up into one blob. Skip lone pixels: real edges are
+    // lines (each pixel has edge neighbours), camera noise is isolated specks.
+    for (let y = 1; y < DH - 1; y++) {
+      for (let x = 1; x < DW - 1; x++) {
+        const i = y * DW + x;
+        if (!edgeTmp[i]) continue;
+        const nbrs = edgeTmp[i - 1] + edgeTmp[i + 1] + edgeTmp[i - DW] + edgeTmp[i + DW] +
+          edgeTmp[i - DW - 1] + edgeTmp[i - DW + 1] + edgeTmp[i + DW - 1] + edgeTmp[i + DW + 1];
+        if (nbrs < 2) continue;
+        for (let yy = Math.max(0, y - 2); yy <= Math.min(DH - 1, y + 2); yy++) {
+          for (let xx = Math.max(0, x - 2); xx <= Math.min(DW - 1, x + 2); xx++) mask[yy * DW + xx] = 1;
+        }
+      }
+    }
+  }
+
+  // erode then dilate the card mask twice: removes specks and cuts thin bridges that would join the card
+  // to a patch of background into one blob that isn't card-shaped
+  let maskTmp = null;
+  function openMask() {
+    if (!maskTmp || maskTmp.length !== N) maskTmp = new Uint8Array(N);
+    const step = (src, dst, erode) => {
+      for (let y = 0; y < DH; y++) {
+        for (let x = 0; x < DW; x++) {
+          const i = y * DW + x;
+          const l = x > 0 ? src[i - 1] : src[i], r = x < DW - 1 ? src[i + 1] : src[i];
+          const u = y > 0 ? src[i - DW] : src[i], d = y < DH - 1 ? src[i + DW] : src[i];
+          dst[i] = erode ? (src[i] & l & r & u & d) : (src[i] | l | r | u | d);
+        }
+      }
+    };
+    step(mask, maskTmp, true); step(maskTmp, mask, true);
+    step(mask, maskTmp, false); step(maskTmp, mask, false);
   }
 
   // ---------------------------------------------------------------- detection
@@ -253,11 +329,16 @@
       const mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
       const mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
       let m = l >= bright && (mx - mn) <= maxSat * mx;
+      white[i] = m ? 1 : 0;
       if (m && useBg) {
         const d = Math.max(Math.abs(r - bgR[i] * gain), Math.abs(g - bgG[i] * gain), Math.abs(b - bgB[i] * gain));
         if (d < diff) m = false;
       }
       mask[i] = m ? 1 : 0;
+    }
+    if (bgReady() || !S.useBg) {
+      openMask();
+      if (useBg && S.edges) addNewEdges(data);
     }
     updateBackground(data);
     if (!bgReady() && S.useBg) return null;
@@ -265,16 +346,17 @@
     labels.fill(0);
     const minArea = (S.minSize / 100) * N;
     let best = null, label = 0;
+    why.length = 0;
     for (let i = 0; i < N; i++) {
       if (!mask[i] || labels[i]) continue;
       label++;
-      let qh = 0, qt = 0, area = 0, nb = 0, sr = 0, sg = 0, sb = 0, touch = false;
+      let qh = 0, qt = 0, area = 0, nb = 0, sr = 0, sg = 0, sb = 0, wn = 0, touch = false;
       queue[qt++] = i; labels[i] = label;
       while (qh < qt) {
         const j = queue[qh++];
         const x = j % DW, y = (j / DW) | 0;
         area++;
-        const p = j * 4; sr += data[p]; sg += data[p + 1]; sb += data[p + 2];
+        if (white[j]) { const p = j * 4; sr += data[p]; sg += data[p + 1]; sb += data[p + 2]; wn++; }
         let edge = false;
         if (x === 0 || y === 0 || x === DW - 1 || y === DH - 1) { touch = true; edge = true; }
         if (x > 0) { const k = j - 1; if (mask[k]) { if (!labels[k]) { labels[k] = label; queue[qt++] = k; } } else edge = true; }
@@ -286,7 +368,7 @@
       // a card sliding in from the edge is allowed to be smaller
       if (area < (touch ? minArea * 0.25 : minArea) || area > N * 0.85) continue;
       const c = analyse(nb, area, touch);
-      if (c && (!best || c.area > best.area)) { c.color = [sr / area, sg / area, sb / area]; best = c; }
+      if (c && (!best || c.area > best.area)) { c.color = wn > 20 ? [sr / wn, sg / wn, sb / wn] : scene.rgb.slice(); best = c; }
     }
     if (best && !best.touch) learnCardSize(best);
     return best;
@@ -346,18 +428,48 @@
     };
   }
 
+  const why = [];   // debug: why each blob was rejected
   function analyse(nb, area, touch) {
+    const r = analyse2(nb, area, touch);
+    if (S.debug) why.push(r && r.reason ? r.reason : (r ? 'ok' : 'tiny') + ' a=' + area + (touch ? ' edge' : ''));
+    return r && r.reason ? null : r;
+  }
+  // fraction of the rectangle's outline (the parts inside the picture) that lies on mask pixels
+  function outlineSupport(R) {
+    let on = 0, all = 0;
+    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([su, sv]) => [
+      R.cx - 0.5 + su * R.a.dx * (R.a.len / 2 - 1.5) + sv * R.b.dx * (R.b.len / 2 - 1.5),
+      R.cy - 0.5 + su * R.a.dy * (R.a.len / 2 - 1.5) + sv * R.b.dy * (R.b.len / 2 - 1.5)]);
+    for (let c = 0; c < 4; c++) {
+      const [x0, y0] = corners[c], [x1, y1] = corners[(c + 1) % 4];
+      const steps = Math.max(2, Math.round(Math.hypot(x1 - x0, y1 - y0)));
+      for (let s = 0; s <= steps; s++) {
+        const x = Math.round(x0 + (x1 - x0) * s / steps), y = Math.round(y0 + (y1 - y0) * s / steps);
+        if (x < 1 || y < 1 || x >= DW - 1 || y >= DH - 1) continue;     // off-screen part of the card
+        all++;
+        const i = y * DW + x;
+        if (mask[i] | mask[i - 1] | mask[i + 1] | mask[i - DW] | mask[i + DW]) on++;
+      }
+    }
+    return all ? on / all : 0;
+  }
+
+  function analyse2(nb, area, touch) {
     if (nb < 3) return null;
     const h = convexHull(nb);
     if (h.length < 3) return null;
     const R = minAreaRect(h);
     if (!R || R.area <= 0) return null;
     const hullArea = polyArea(h);
-    if (hullArea / R.area < (touch ? 0.72 : 0.84)) return null;   // must be rectangular
-    if (area / (hullArea + 1) < 0.45) return null;                // and mostly bright inside
+    if (hullArea / R.area < (touch ? 0.72 : 0.84)) return { reason: 'notRect ' + (hullArea / R.area).toFixed(2) + ' a=' + area };
+    // filled in (seen by colour) or outlined (seen by edges): most of the rectangle's sides must be there
+    if (area / (hullArea + 1) < 0.25) {
+      const sup = outlineSupport(R);
+      if (sup < 0.6) return { reason: 'sparse ' + (area / hullArea).toFixed(2) + ' outline ' + sup.toFixed(2) + ' a=' + area };
+    }
     if (!touch) {
       const ar = Math.min(R.a.len, R.b.len) / Math.max(R.a.len, R.b.len);
-      if (ar < 0.55 || ar > 0.88) return null;
+      if (ar < 0.55 || ar > 0.88) return { reason: 'aspect ' + ar.toFixed(2) + ' a=' + area };
     } else {
       extendTruncated(R);
     }
@@ -480,38 +592,20 @@
   }
 
   // ---------------------------------------------------------------- rendering
+  // tracking mode: the replacement card sits exactly on the real one, lit by the real card's own white
+  // (measured live), with the same blur / grain as the timed card, and fingers kept in front of it
   function drawOverlay(t) {
-    const card = activeCard();
-    const img = cardImage(card);
-    if (!ready(img)) return;
-    const k = W / DW;
-    const m = 1 + S.margin / 100;
-    const s = t.s * k * m, l = t.l * k * m;
-    lctx.setTransform(1, 0, 0, 1, 0, 0);
-    lctx.globalCompositeOperation = 'source-over';
-    lctx.clearRect(0, 0, W, H);
-    lctx.save();
-    lctx.translate(t.cx * k, t.cy * k);
-    lctx.rotate(t.theta + (S.flip180 ? Math.PI : 0));
-    if (S.mirrorOverlay && mirrored()) lctx.scale(-1, 1);
-    lctx.drawImage(img, -s / 2, -l / 2, s, l);
-    if (card.match) {
-      // tint the card to the brightness/colour of the real card's white under this light
-      const c = t.color.map((v) => Math.round(Math.min(255, v * 1.02)));
-      lctx.globalCompositeOperation = 'multiply';
-      lctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
-      lctx.fillRect(-s / 2, -l / 2, s, l);
-      lctx.globalCompositeOperation = 'destination-in';
-      lctx.drawImage(img, -s / 2, -l / 2, s, l);
-    }
-    lctx.restore();
-    if (S.fingers && buildSkinMask(t)) {
-      lctx.globalCompositeOperation = 'destination-out';
-      lctx.imageSmoothingEnabled = true;
-      lctx.drawImage(skinCv, 0, 0, W, H);
-      lctx.globalCompositeOperation = 'source-over';
-    }
-    sctx.drawImage(layer, 0, 0);
+    const k = W / DW, m = 1 + S.margin / 100;
+    renderCard(sctx, layer, { x: t.cx * k, y: t.cy * k, s: t.s * k * m, l: t.l * k * m, theta: t.theta }, {
+      tint: t.color.map((v) => v * 1.02),
+      post: (g) => {
+        if (!(S.fingers && buildSkinMask(t))) return;
+        g.globalCompositeOperation = 'destination-out';
+        g.imageSmoothingEnabled = true;
+        g.drawImage(skinCv, 0, 0, W, H);
+        g.globalCompositeOperation = 'source-over';
+      },
+    });
   }
 
   function drawDebug(raw, t) {
@@ -743,8 +837,9 @@
     return grainPat;
   }
 
-  // draw the fake card at p = {x, y, s, l, theta} onto ctx, using scratch (same size as ctx's canvas)
-  function renderCard(ctx, scratch, p) {
+  // draw the fake card at p = {x, y, s, l, theta} onto ctx, using scratch (same size as ctx's canvas).
+  // opts.tint: light colour to use instead of the room's; opts.post(g): last step on the scratch layer
+  function renderCard(ctx, scratch, p, opts = {}) {
     const card = activeCard();
     const raw = cardImage(card);
     if (!ready(raw)) return;
@@ -764,7 +859,7 @@
     // re-light: library cards are stored evenly lit (white paper), so tint them with the room's
     // current colour and brightness, as the camera sees it right now
     if (card.match !== false) {
-      const c = scene.rgb.map((v) => Math.round(Math.min(255, v * S.cardBright / 100)));
+      const c = (opts.tint || scene.rgb).map((v) => Math.round(Math.min(255, v * S.cardBright / 100)));
       g.globalCompositeOperation = 'multiply';
       g.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
       g.fillRect(x0, y0, dw, dh);
@@ -783,6 +878,7 @@
     g.globalCompositeOperation = 'destination-in';
     g.drawImage(img, x0, y0, dw, dh);
     g.restore();
+    if (opts.post) opts.post(g);
     ctx.drawImage(scratch, 0, 0);
   }
   const drawFakeCard = (p) => renderCard(sctx, layer, p);
@@ -1516,5 +1612,5 @@
   startCamera();
   requestAnimationFrame(loop);
 
-  window.__trick = { S, get track() { return track; }, get fps() { return fps; }, cards };   // handy for debugging
+  window.__trick = { why, S, get track() { return track; }, get fps() { return fps; }, cards };   // handy for debugging
 })();
