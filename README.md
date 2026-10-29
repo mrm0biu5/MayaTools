@@ -1,6 +1,6 @@
 # Camera (card overlay trick)
 
-A web app that looks like the iOS 26 iPhone Camera app (front camera, photo mode). When a playing card
+A web app that looks like the iOS 26 iPhone Camera app (front camera; opens in VIDEO mode, PHOTO mode available). When a playing card
 held flat over the phone comes into view, the app finds it live and draws your chosen card over
 it. The overlay follows position, size and rotation, matches the room's lighting, and keeps your
 fingers in front of it.
@@ -26,6 +26,8 @@ fingers in front of it.
 | Two-finger tap on picture | Arm / disarm overlay |
 | Three-finger tap on picture | Next card |
 | One-finger tap | Yellow focus square (like the real app) |
+| Tap VIDEO / PHOTO in the mode pill | Switch mode |
+| Record button | Really records the screen (overlay included); tap the thumbnail to play back / share |
 
 ## Cards
 - Built in: 3♣.

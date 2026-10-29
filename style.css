@@ -1,7 +1,9 @@
 :root {
   --yellow: #ffd60a;
+  --red: #eb4a42;
   --top: env(safe-area-inset-top, 0px);
   --bottom: env(safe-area-inset-bottom, 0px);
+  --bar: calc(66px + var(--bottom));
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body {
@@ -13,12 +15,12 @@ html, body {
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 
 #app { position: fixed; inset: 0; display: flex; flex-direction: column; background: #000; }
+.mode-video .photo-only, .mode-photo .video-only { display: none !important; }
 
-/* ---- top bar (iOS 26 camera) ---- */
-#topbar {
-  flex: none; height: calc(50px + var(--top)); padding: var(--top) 14px 0;
-  display: flex; align-items: center; justify-content: flex-end; position: relative;
-}
+/* ---- top bar ---- */
+#topbar { position: relative; flex: none; display: flex; align-items: center; justify-content: flex-end; padding: var(--top) 14px 0; }
+.mode-photo #topbar { height: calc(50px + var(--top)); }
+.mode-video #topbar { flex: 1 1 0; min-height: 0; padding: 0; }   /* black space above the 16:9 preview */
 .tb-right { display: flex; align-items: center; gap: 10px; }
 .pill {
   height: 34px; border-radius: 17px; background: rgba(255,255,255,.13); color: #fff;
@@ -33,23 +35,69 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #flashBtn.flash-on { color: var(--yellow); }
 #flashBtn.flash-off .flash-a { display: none; }
 #armDot {
-  position: absolute; left: 22px; bottom: 20px; width: 3px; height: 3px;
+  position: absolute; left: 22px; bottom: 10px; width: 3px; height: 3px;
   border-radius: 50%; background: rgba(255,255,255,.22); display: none;
 }
 #armDot.show { display: block; }
 
 /* ---- preview ---- */
-#viewport {
-  flex: none; position: relative; overflow: hidden; background: #111;
-  width: 100vw; height: min(133.333vw, calc(100vh - 50px - 154px - var(--top) - var(--bottom)));
-  align-self: center;
-}
+#viewport { flex: none; position: relative; overflow: hidden; background: #111; width: 100vw; align-self: center; }
+.mode-video #viewport { height: min(177.778vw, calc(100vh - var(--bar))); }
+.mode-photo #viewport { height: min(133.333vw, calc(100vh - 50px - 88px - var(--top) - var(--bar))); }
 #video, #screen { position: absolute; inset: 0; width: 100%; height: 100%; }
 #video { object-fit: cover; opacity: 0; }
+
+#grid { position: absolute; inset: 0; pointer-events: none; display: none; }
+#grid.show { display: block; }
+#grid i { position: absolute; background: rgba(255,255,255,.5); }
+#grid i:nth-child(1), #grid i:nth-child(2) { top: 0; bottom: 0; width: 1px; }
+#grid i:nth-child(1) { left: 33.333%; } #grid i:nth-child(2) { left: 66.666%; }
+#grid i:nth-child(3), #grid i:nth-child(4) { left: 0; right: 0; height: 1px; }
+#grid i:nth-child(3) { top: 33.333%; } #grid i:nth-child(4) { top: 66.666%; }
+
+/* top-down level shown by iOS when the phone lies flat */
+#level { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; display: none; }
+#level.show { display: block; }
+#level .cross { position: absolute; left: -17px; top: -17px; width: 34px; height: 34px; }
+#level .cross::before, #level .cross::after { content: ""; position: absolute; background: currentColor; }
+#level .cross::before { left: 0; right: 0; top: 16.25px; height: 1.5px; }
+#level .cross::after { top: 0; bottom: 0; left: 16.25px; width: 1.5px; }
+#level .white { color: #fff; }
+#level .yellow { color: var(--yellow); transform: translate(var(--lx, 9px), var(--ly, 0px)); }
+#level.flat .white { color: var(--yellow); }
+
+#vidInfo {
+  position: absolute; top: 21px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; line-height: 1;
+  text-shadow: 0 0 2px rgba(0,0,0,.35);
+}
+#resBtn { font-size: 17px; font-weight: 600; letter-spacing: .2px; padding: 2px 6px 1px; }
+#fpsBtn { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; font-weight: 600; padding: 1px 6px 2px; }
+#recTime {
+  position: absolute; top: 20px; left: 50%; transform: translateX(-50%); display: none;
+  background: var(--red); border-radius: 6px; padding: 3px 7px; font-size: 17px; font-weight: 500;
+  font-variant-numeric: tabular-nums; letter-spacing: .3px;
+}
+.recording #recTime { display: block; }
+.recording #vidInfo { display: none; }
+
+#recBtn {
+  position: absolute; left: 50%; bottom: 17px; width: 83px; height: 83px; margin-left: -41.5px;
+  border-radius: 50%; display: grid; place-items: center;
+  background: rgba(28,28,30,.55); box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.2);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+#recBtn span { width: 69px; height: 69px; border-radius: 35px; background: var(--red); transition: all .25s ease; }
+.recording #recBtn span { width: 30px; height: 30px; border-radius: 7px; }
+#moreBtn {
+  position: absolute; right: 35px; bottom: 34px; width: 49px; height: 49px; border-radius: 50%;
+  display: grid; place-items: center; color: #fff; background: rgba(28,28,30,.72);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+
 #focus {
   position: absolute; width: 74px; height: 74px; margin: -37px 0 0 -37px;
-  border: 1px solid var(--yellow); opacity: 0; pointer-events: none;
-  transform: scale(1.5);
+  border: 1px solid var(--yellow); opacity: 0; pointer-events: none; transform: scale(1.5);
 }
 #focus::before, #focus::after { content: ""; position: absolute; background: var(--yellow); }
 #focus::before { width: 1px; height: 6px; left: 50%; top: 0; box-shadow: 0 66px 0 var(--yellow); }
@@ -65,7 +113,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #flash.go { animation: shot .22s ease-out; }
 @keyframes shot { 0% { opacity: 1; } 100% { opacity: 0; } }
 #toast {
-  position: absolute; left: 50%; bottom: 60px; transform: translateX(-50%);
+  position: absolute; left: 50%; top: 45%; transform: translateX(-50%);
   background: rgba(0,0,0,.6); color: #fff; font-size: 14px; padding: 8px 14px; border-radius: 14px;
   opacity: 0; transition: opacity .25s; pointer-events: none; white-space: nowrap;
 }
@@ -77,7 +125,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #camError[hidden] { display: none; }
 #camError button { background: #fff; color: #000; padding: 10px 20px; border-radius: 20px; font-weight: 600; }
 
-/* ---- shutter + bottom row ---- */
+/* ---- photo-mode shutter ---- */
 #shutterBand { flex: 1; min-height: 88px; display: grid; place-items: center; }
 #shutter {
   width: 74px; height: 74px; border-radius: 50%; border: 3px solid rgba(255,255,255,.55);
@@ -85,25 +133,50 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 }
 #shutter span { width: 62px; height: 62px; border-radius: 50%; background: #f4f4f6; transition: transform .1s; }
 #shutter:active span { transform: scale(.9); }
+
+/* ---- bottom bar ---- */
 #controls {
-  flex: none; height: calc(66px + var(--bottom)); padding: 0 26px var(--bottom);
-  display: flex; align-items: center; justify-content: space-between;
+  flex: none; height: var(--bar); padding: 16px 35px var(--bottom);
+  display: flex; align-items: flex-start; justify-content: space-between;
 }
-#thumb { width: 42px; height: 42px; border-radius: 50%; overflow: hidden; background: #2a2a2c; }
+#thumb { width: 49px; height: 49px; border-radius: 50%; overflow: hidden; background: #2a2a2c; transition: opacity .25s; }
 #thumbCv { width: 100%; height: 100%; display: block; }
 #modePill {
-  display: flex; align-items: center; height: 40px; padding: 3px; border-radius: 20px;
-  background: rgba(255,255,255,.12); font-size: 13px; font-weight: 600; letter-spacing: .3px;
+  position: relative; width: 216px; height: 50px; border-radius: 25px; background: #1c1c1e; overflow: hidden;
+  transition: opacity .25s;
 }
-#modePill span { padding: 0 16px; height: 34px; line-height: 34px; border-radius: 17px; color: #fff; }
-#modePill .active {
-  color: var(--yellow); background: #1c1c1e; box-shadow: inset 0 0 0 .5px rgba(255,255,255,.18);
+#modePill::before {
+  content: ""; position: absolute; left: 50%; top: 3.5px; width: 86px; height: 43px; margin-left: -43px;
+  border-radius: 21.5px; background: linear-gradient(#323234, #262628);
+  box-shadow: inset 0 0 0 .6px rgba(255,255,255,.16), 0 1px 3px rgba(0,0,0,.4);
 }
+#modeStrip { position: absolute; top: 0; height: 100%; }
+#modeStrip {
+  left: 0; display: flex; align-items: center; gap: 33px; white-space: nowrap;
+  font-size: 14.5px; font-weight: 500; letter-spacing: .5px; color: rgba(255,255,255,.93);
+  transition: transform .3s ease;
+}
+#modePill { -webkit-mask-image: radial-gradient(#000, #000); }
+#modePill .fade {
+  position: absolute; top: 0; bottom: 0; width: 26px; pointer-events: none; z-index: 2;
+}
+#modePill .fade.l { left: 0; background: linear-gradient(90deg, #1c1c1e, rgba(28,28,30,0)); }
+#modePill .fade.r { right: 0; background: linear-gradient(270deg, #1c1c1e, rgba(28,28,30,0)); }
+#modeStrip span { position: relative; }
+#modeStrip .active { color: #f6e24f; }
+.recording #modePill, .recording #thumb { opacity: 0; pointer-events: none; }
 #flipBtn {
-  width: 42px; height: 42px; border-radius: 50%; background: rgba(255,255,255,.13);
+  width: 49px; height: 49px; border-radius: 50%; background: #2a2a2c;
   display: grid; place-items: center; color: #fff; transition: transform .45s;
 }
 #flipBtn.spin { transform: rotateY(180deg); }
+
+/* ---- playback viewer ---- */
+#viewer { position: fixed; inset: 0; z-index: 9; background: #000; display: flex; flex-direction: column; }
+#viewer[hidden] { display: none; }
+#playback { flex: 1; width: 100%; min-height: 0; background: #000; }
+.viewer-bar { display: flex; justify-content: space-between; padding: 12px 20px calc(12px + var(--bottom)); }
+.viewer-bar button { color: #0a84ff; font-size: 17px; padding: 8px; }
 
 /* ---- settings ---- */
 #settings {

@@ -22,7 +22,7 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
   };
   const DEFAULTS = {
-    armed: true, activeCard: BUILTIN_ID, mirrorOverlay: true, flip180: false, fingers: true, showDot: true,
+    armed: true, activeCard: BUILTIN_ID, mode: 'video', grid: true, level: true, mirrorOverlay: true, flip180: false, fingers: true, showDot: true,
     margin: 4, smooth: 10, hold: 4, cardS: 50,
     bright: 70, maxSat: 30, minSize: 2, useBg: true, bgDiff: 20, debug: false,
   };
@@ -97,7 +97,7 @@
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1440 } },
+        video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: mode === 'video' ? 1080 : 1440 } },
       });
       video.srcObject = stream;
       await video.play();
@@ -634,9 +634,14 @@
   function refreshOutputs() {
     for (const el of settingsEl.querySelectorAll('[data-out]')) el.textContent = S[el.dataset.out];
     $('armDot').classList.toggle('show', S.showDot && S.armed);
+    $('grid').classList.toggle('show', !!S.grid);
+    updateLevel();
   }
   function openSettings() { bindSettings(); renderCards(); settingsEl.hidden = false; }
-  function closeSettings() { settingsEl.hidden = true; resetBackground(); track = null; }
+  function closeSettings() {
+    settingsEl.hidden = true; resetBackground(); track = null;
+    if (S.level) enableMotion();   // iOS only allows the motion permission prompt from a tap
+  }
   $('closeSettings').addEventListener('click', closeSettings);
   $('resetBgBtn').addEventListener('click', () => { resetBackground(); toast('Background reset', 1000); });
   $('resetAllBtn').addEventListener('click', () => {
@@ -654,6 +659,28 @@
   }
 
   // ---------------------------------------------------------------- camera UI behaviour
+  const app = $('app');
+  let mode = S.mode === 'photo' ? 'photo' : 'video';
+
+  function setMode(m, restart) {
+    mode = m; S.mode = m; saveSettings();
+    app.classList.toggle('mode-video', m === 'video');
+    app.classList.toggle('mode-photo', m === 'photo');
+    for (const el of $('modeStrip').children) el.classList.toggle('active', el.dataset.mode === m);
+    requestAnimationFrame(() => { centerMode(); resize(); });
+    if (restart) { track = null; startCamera(); }
+  }
+  function centerMode() {
+    const strip = $('modeStrip'), active = strip.querySelector('.active');
+    const x = $('modePill').clientWidth / 2 - (active.offsetLeft + active.offsetWidth / 2);
+    strip.style.transform = `translateX(${x}px)`;
+  }
+  $('modeStrip').addEventListener('click', (e) => {
+    const m = e.target.dataset && e.target.dataset.mode;
+    if (m && m !== mode && !isRecording()) setMode(m, true);
+  });
+
+  // photo-mode top pills
   const flashStates = ['flash-auto', 'flash-on', 'flash-off'];
   let flashState = 0;
   $('flashBtn').addEventListener('click', (e) => {
@@ -664,14 +691,52 @@
   $('liveBtn').addEventListener('click', (e) => e.currentTarget.classList.toggle('off'));
   $('frameBtn').addEventListener('click', (e) => e.currentTarget.classList.toggle('on'));
 
-  // the real app shows your last photo; use a frame from the camera shortly after launch
+  // video-mode format badges
+  $('resBtn').addEventListener('click', (e) => { e.target.textContent = e.target.textContent === '4K' ? 'HD' : '4K'; });
+  const rates = ['30', '60', '24'];
+  $('fpsBtn').addEventListener('click', (e) => { e.target.textContent = rates[(rates.indexOf(e.target.textContent) + 1) % rates.length]; });
+
+  // ---- level: iOS draws a white and a yellow cross when the phone lies flat; they meet when level
+  const levelEl = $('level');
+  let motion = null;   // {beta, gamma} once the sensor is running
+  function updateLevel() {
+    let show = !!S.level, dx = 9, dy = 0;     // no sensor yet: look like the screenshot (nearly level)
+    if (motion) {
+      show = show && Math.abs(motion.beta) < 25 && Math.abs(motion.gamma) < 25;
+      dx = motion.gamma * 3; dy = motion.beta * 3;
+    }
+    const flat = Math.hypot(dx, dy) < 2.5;
+    if (flat) dx = dy = 0;
+    levelEl.classList.toggle('show', show);
+    levelEl.classList.toggle('flat', flat);
+    levelEl.style.setProperty('--lx', dx.toFixed(1) + 'px');
+    levelEl.style.setProperty('--ly', dy.toFixed(1) + 'px');
+  }
+  function onOrientation(e) {
+    if (e.beta == null) return;
+    const m = motion || { beta: e.beta, gamma: e.gamma };
+    m.beta += (e.beta - m.beta) * 0.3; m.gamma += (e.gamma - m.gamma) * 0.3;
+    motion = m;
+    updateLevel();
+  }
+  let motionOn = false;
+  function enableMotion() {
+    if (motionOn) return;
+    const DOE = window.DeviceOrientationEvent;
+    if (!DOE) return;
+    const listen = () => { motionOn = true; window.addEventListener('deviceorientation', onOrientation); };
+    if (typeof DOE.requestPermission === 'function') DOE.requestPermission().then((r) => { if (r === 'granted') listen(); }).catch(() => {});
+    else listen();
+  }
+
+  // ---- thumbnail: the real app shows your last photo; use a frame from the camera shortly after launch
   function setThumb() {
     const t = $('thumbCv'), g = t.getContext('2d');
     const side = Math.min(W, H);
     g.drawImage(screenCv, (W - side) / 2, (H - side) / 2, side, side, 0, 0, t.width, t.height);
   }
-  video.addEventListener('playing', () => setTimeout(() => { if (!thumbSet) { thumbSet = true; setThumb(); } }, 1200));
   let thumbSet = false;
+  video.addEventListener('playing', () => setTimeout(() => { if (!thumbSet) { thumbSet = true; setThumb(); } }, 1200));
 
   $('shutter').addEventListener('click', () => {
     const f = $('flash');
@@ -680,7 +745,59 @@
     setThumb();
   });
 
+  // ---- recording: records the screen canvas, so the overlay is in the clip
+  let recorder = null, recChunks = [], recStart = 0, recTick = 0, lastClip = null;
+  const isRecording = () => app.classList.contains('recording');
+  function updateRecTime() {
+    const s = Math.floor((performance.now() - recStart) / 1000);
+    $('recTime').textContent = [s / 3600, (s % 3600) / 60, s % 60].map((v) => String(Math.floor(v)).padStart(2, '0')).join(':');
+  }
+  function startRecording() {
+    app.classList.add('recording');
+    recStart = performance.now(); updateRecTime();
+    recTick = setInterval(updateRecTime, 250);
+    recChunks = [];
+    try {
+      const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+      const type = window.MediaRecorder && types.find((t) => MediaRecorder.isTypeSupported(t));
+      const rec = new MediaRecorder(screenCv.captureStream(30), type ? { mimeType: type, videoBitsPerSecond: 8e6 } : undefined);
+      rec.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
+      rec.onstop = () => { lastClip = new Blob(recChunks, { type: rec.mimeType || type || 'video/mp4' }); };
+      rec.start(1000);
+      recorder = rec;
+    } catch { recorder = null; }
+  }
+  function stopRecording() {
+    app.classList.remove('recording');
+    clearInterval(recTick);
+    if (recorder) { recorder.stop(); recorder = null; }
+    thumbSet = true;
+    setThumb();
+  }
+  $('recBtn').addEventListener('click', () => (isRecording() ? stopRecording() : startRecording()));
+
+  const viewer = $('viewer'), playback = $('playback');
+  function openViewer() {
+    if (!lastClip) return;
+    playback.src = URL.createObjectURL(lastClip);
+    viewer.hidden = false;
+    playback.play().catch(() => {});
+  }
+  $('viewerClose').addEventListener('click', () => { playback.pause(); URL.revokeObjectURL(playback.src); viewer.hidden = true; });
+  $('viewerShare').addEventListener('click', async () => {
+    if (!lastClip) return;
+    const ext = lastClip.type.includes('mp4') ? 'mp4' : 'webm';
+    const file = new File([lastClip], `IMG_${String(Date.now()).slice(-4)}.${ext}`, { type: lastClip.type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); } catch {}
+    } else {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(file); a.download = file.name; a.click();
+    }
+  });
+
   $('flipBtn').addEventListener('click', (e) => {
+    if (isRecording()) return;
     e.currentTarget.classList.toggle('spin');
     facing = facing === 'user' ? 'environment' : 'user';
     track = null;
@@ -688,16 +805,24 @@
   });
 
   // long-press thumbnail -> settings
+  // (a short tap plays back the last recording)
   let pressTimer = 0;
   const thumb = $('thumb');
-  thumb.addEventListener('touchstart', () => { pressTimer = setTimeout(openSettings, 700); }, { passive: true });
-  thumb.addEventListener('touchend', () => clearTimeout(pressTimer));
-  thumb.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
+  thumb.addEventListener('touchstart', () => {
+    pressTimer = setTimeout(() => { pressTimer = 0; openSettings(); }, 700);
+  }, { passive: true });
+  thumb.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = 0; openViewer(); }
+  });
+  thumb.addEventListener('touchmove', () => { clearTimeout(pressTimer); pressTimer = 0; }, { passive: true });
+  thumb.addEventListener('click', openViewer);
   thumb.addEventListener('contextmenu', (e) => { e.preventDefault(); openSettings(); }); // desktop: right-click
 
   // taps on the picture: 1 finger = focus square, 2 = arm/disarm, 3 = next card
   let gesture = null;
   viewport.addEventListener('touchstart', (e) => {
+    if (e.target.closest('button')) return;      // record / 4K / more buttons sit on the picture
     if (!gesture) gesture = { start: performance.now(), max: 0, moved: false, x: 0, y: 0 };
     gesture.max = Math.max(gesture.max, e.touches.length);
     const t = e.touches[0];
@@ -746,10 +871,12 @@
   });
 
   // ---------------------------------------------------------------- boot
-  window.addEventListener('resize', resize);
+  window.addEventListener('resize', () => { resize(); centerMode(); });
   window.addEventListener('orientationchange', () => setTimeout(resize, 300));
   document.addEventListener('visibilitychange', () => { if (!document.hidden) resetBackground(); });
+  setMode(mode, false);
   resize();
+  if (!(window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function')) enableMotion();
   refreshOutputs();
   renderCards();
   startCamera();
