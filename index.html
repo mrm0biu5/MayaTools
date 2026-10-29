@@ -11,13 +11,13 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="manifest" href="manifest.webmanifest">
 <title>Camera</title>
-<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
 <div id="app" class="mode-video">
   <header id="topbar">
     <i id="armDot"></i>
-    <span id="versionTag">v15</span>
+    <span id="versionTag">v16</span>
     <div class="tb-right photo-only">
       <button class="pill circ off" id="liveBtn" aria-label="Live Photo">
         <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="2.6" fill="currentColor"/><circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="0.1 2.3" stroke-linecap="round"/><path class="slash" d="M4.2 4.2 19.8 19.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -93,8 +93,20 @@
 <div id="settings" hidden>
   <div class="sheet">
     <div class="sheet-head">
-      <h1>Trick Settings <small id="versionTitle">v15</small></h1>
+      <h1>Trick Settings <small id="versionTitle">v16</small></h1>
       <button id="closeSettings">Done</button>
+    </div>
+
+    <h2>Cards</h2>
+    <div class="group">
+      <div id="cardGrid"></div>
+      <label class="row"><span>Re-light selected card to match room</span><input type="checkbox" class="switch" id="matchToggle"></label>
+      <div class="row buttons">
+        <label class="btn">Take Photo<input type="file" id="cameraInput" accept="image/*" capture="environment" hidden></label>
+        <label class="btn">Choose Photo<input type="file" id="fileInput" accept="image/*" hidden></label>
+        <button class="btn" id="grabBtn">Use Front Camera</button>
+      </div>
+      <p class="hint">Photograph the card on any plain, darker surface – any angle and any light is fine. You'll then line up its 4 corners; the app straightens it, removes the lighting from the photo and re-lights it live to match the room. Tap a card to use it; three-finger tap on the picture cycles through them.</p>
     </div>
 
     <h2>Trick</h2>
@@ -169,18 +181,6 @@
       <label class="row col"><span>Hold when lost <b data-out="hold"></b> frames</span><input type="range" min="0" max="30" step="1" data-key="hold"></label>
     </div>
 
-    <h2>Cards</h2>
-    <div class="group">
-      <div id="cardGrid"></div>
-      <label class="row"><span>Re-light selected card to match room</span><input type="checkbox" class="switch" id="matchToggle"></label>
-      <div class="row buttons">
-        <label class="btn">Take Photo<input type="file" id="cameraInput" accept="image/*" capture="environment" hidden></label>
-        <label class="btn">Choose Photo<input type="file" id="fileInput" accept="image/*" hidden></label>
-        <button class="btn" id="grabBtn">Use Front Camera</button>
-      </div>
-      <p class="hint">Photograph the card on any plain, darker surface – any angle and any light is fine. You'll then line up its 4 corners; the app straightens it, removes the lighting from the photo and re-lights it live to match the room. Tap a card to use it; three-finger tap on the picture cycles through them.</p>
-    </div>
-
     <h2>Tracking mode – detection</h2>
     <div class="group">
       <label class="row col"><span>Min card brightness <b data-out="bright"></b></span><input type="range" min="20" max="245" step="1" data-key="bright"></label>
@@ -205,6 +205,6 @@
   </div>
 </div>
 
-<script src="app.js?v=15"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>
