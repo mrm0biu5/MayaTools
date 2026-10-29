@@ -24,13 +24,18 @@
   const DEFAULTS = {
     armed: true, activeCard: BUILTIN_ID, mode: 'video', grid: true, level: true,
     // timed trick: a fake card animates over the live picture while the bottom is masked
-    trick: 'timed', path: 'swipe-rl', trigger: 'both', dur: 1.6, pause: 0.3, delay: 0,
-    cardW: 62, cardY: 62, tilt: 0, shade: 18, wobble: true,
+    trick: 'timed', path: 'swipe-rl', trigger: 'both', dur: 3.2, pause: 0.6, delay: 0,
+    cardW: 78, cardY: 95, restX: 58, tilt: -4, shade: 18, blur: 35, wobble: true,
     mask: 'always', maskH: 40, maskFeather: 10, maskAfter: 1.5, mirrorOverlay: true, flip180: false, fingers: true, showDot: true,
     margin: 4, smooth: 10, hold: 4, cardS: 50,
     bright: 70, maxSat: 30, minSize: 2, useBg: true, bgDiff: 20, debug: false,
   };
-  const S = Object.assign({}, DEFAULTS, store.get('ct.settings', {}));
+  // bump when the default card movement changes, so phones that already saved settings pick it up
+  const MOVEMENT_VERSION = 2;
+  const MOVEMENT_KEYS = ['path', 'dur', 'pause', 'delay', 'cardW', 'cardY', 'restX', 'tilt', 'blur'];
+  const saved = store.get('ct.settings', {});
+  if (saved.movementVersion !== MOVEMENT_VERSION) MOVEMENT_KEYS.forEach((k) => delete saved[k]);
+  const S = Object.assign({}, DEFAULTS, saved, { movementVersion: MOVEMENT_VERSION });
   const saveSettings = () => store.set('ct.settings', S);
 
   let cards = store.get('ct.cards', []);                  // [{id, name, src, match, builtin}]
@@ -616,16 +621,17 @@
     else if (t < half + S.pause) u = 0.5;
     else u = 0.5 + 0.5 * ((t - half - S.pause) / half) ** 2;                    // ease in on the way out
     const s = W * S.cardW / 100, l = s * CARD_ASPECT;
-    const cy = H * S.cardY / 100, cx = W / 2;
-    const offX = W / 2 + s * 0.75, offBottom = H + l * 0.6 - cy, offTop = cy + l * 0.6;
+    const cy = H * S.cardY / 100, cx = W * S.restX / 100;
+    const offBottom = H + l * 0.6 - cy, offTop = cy + l * 0.6;
+    const offRight = W + s * 0.75, offLeft = -s * 0.75;
     const seg = (a, mid, b) => (u < 0.5 ? lerp(a, mid, u * 2) : lerp(mid, b, u * 2 - 1));
     let x = cx, y = cy;
     switch (S.path) {
-      case 'swipe-lr': x = seg(cx - offX, cx, cx + offX); break;
+      case 'swipe-lr': x = seg(offLeft, cx, offRight); break;
       case 'rise': y = seg(cy + offBottom, cy, cy + offBottom); break;
       case 'rise-exit': y = seg(cy + offBottom, cy, cy - offTop); break;
       case 'drop': y = seg(cy - offTop, cy, cy - offTop); break;
-      default: x = seg(cx + offX, cx, cx - offX);                              // swipe-rl
+      default: x = seg(offRight, cx, offLeft);                                 // swipe-rl
     }
     let theta = S.tilt * Math.PI / 180;
     if (S.wobble) {   // a hand never holds a card perfectly still
@@ -636,10 +642,36 @@
     return { x, y, s, l, theta };
   }
 
+  // a card this close to the lens is out of focus: shrink then enlarge it for a soft, blurred look
+  const softCache = new Map();
+  function softCard(card, img) {
+    if (S.blur <= 0) return img;
+    const key = card.id + ':' + S.blur;
+    if (softCache.has(key)) return softCache.get(key);
+    const make = (w, h) => { const c = document.createElement('canvas'); c.width = Math.round(w); c.height = Math.round(h); return c; };
+    const tw = Math.max(8, Math.round(CARD_W / (1 + S.blur / 100 * 7)));
+    let cur = make(CARD_W, CARD_H);
+    cur.getContext('2d').drawImage(img, 0, 0, CARD_W, CARD_H);
+    while (cur.width / 2 > tw) {     // halve in steps so it blurs smoothly instead of going blocky
+      const n = make(cur.width / 2, cur.height / 2);
+      n.getContext('2d').drawImage(cur, 0, 0, n.width, n.height);
+      cur = n;
+    }
+    const small = make(tw, tw * CARD_ASPECT);
+    small.getContext('2d').drawImage(cur, 0, 0, small.width, small.height);
+    const out = make(CARD_W, CARD_H);
+    const o = out.getContext('2d');
+    o.imageSmoothingQuality = 'high';
+    o.drawImage(small, 0, 0, CARD_W, CARD_H);
+    softCache.set(key, out);
+    return out;
+  }
+
   function drawFakeCard(p) {
     const card = activeCard();
-    const img = cardImage(card);
-    if (!ready(img)) return;
+    const raw = cardImage(card);
+    if (!ready(raw)) return;
+    const img = softCard(card, raw);
     lctx.setTransform(1, 0, 0, 1, 0, 0);
     lctx.globalCompositeOperation = 'source-over';
     lctx.clearRect(0, 0, W, H);
