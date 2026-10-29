@@ -14,7 +14,7 @@ html, body {
 }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 
-/* --app-h is set from JS: launched from the home screen, iOS under-reports the height by the status bar */
+/* --app-h is the usable height, set from JS */
 #app { position: fixed; left: 0; right: 0; top: 0; height: var(--app-h, 100%); display: flex; flex-direction: column; background: #000; }
 .mode-video .photo-only, .mode-photo .video-only { display: none !important; }
 
@@ -43,7 +43,10 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 
 /* ---- preview ---- */
 #viewport { flex: none; position: relative; overflow: hidden; background: #111; width: 100vw; align-self: center; }
-.mode-video #viewport { height: min(177.778vw, calc(var(--app-h, 100vh) - var(--bar))); }
+.mode-video #viewport {
+  /* 16:9 when it fits; otherwise give up a little picture height, never the black bar under the clock */
+  height: min(177.778vw, calc(var(--app-h, 100vh) - var(--bar) - max(0px, var(--top) - 8px)));
+}
 .mode-photo #viewport { height: min(133.333vw, calc(var(--app-h, 100vh) - 50px - 88px - var(--top) - var(--bar))); }
 #video, #screen, #debugLayer { position: absolute; inset: 0; width: 100%; height: 100%; }
 #debugLayer { pointer-events: none; }
