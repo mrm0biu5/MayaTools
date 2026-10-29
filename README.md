@@ -12,7 +12,12 @@ fingers in front of it.
   passing through there is never seen (Settings → bottom mask). Start it with a two-finger tap or the
   Record button. Path, timing, pause, size, height, tilt, shadow and mask height are all adjustable,
   and Preview Animation lets you rehearse.
-- **Replace real card (tracking)**: finds the real card live and draws the force card over it.
+- **Guided tracking**: you move your real card along the agreed path (left/right or up/down, in the
+  lane set by Card size, Card centre height / Resting point across and Tilt). The app measures how far
+  along the path the card is each frame - from what changed, new edges, and the printed pattern of
+  the real card you've picked from the library - rebuilds the off-screen part from the known size,
+  and draws the force card on top, slightly ahead so it never lags.
+- **Free tracking (experimental)**: finds a card anywhere and draws the force card over it.
 
 ## Install on iPhone
 1. Host the folder over **https**: GitHub Pages (Settings → Pages → deploy from this branch, root),

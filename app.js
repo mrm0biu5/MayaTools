@@ -16,7 +16,7 @@
   const skctx = skinCv.getContext('2d');
 
   // keep in step with version.json and the ?v= in index.html
-  const APP_VERSION = '19';
+  const APP_VERSION = '20';
   const CARD_W = 500, CARD_H = 700;
   const CARD_ASPECT = CARD_H / CARD_W;                     // long / short (poker card 88.9 x 63.5mm)
   const BUILTIN_ID = 'builtin-3c';
@@ -252,8 +252,20 @@
   // A card close to the lens is often about as bright as the ceiling behind it, but its outline and pips
   // are sharp new lines that weren't in the empty scene. Mark edges that are stronger now than in the
   // learnt background (allowing for exposure), thicken them, and add them to the card mask.
+  let lumS = null;
   function addNewEdges(data) {
     for (let i = 0; i < N; i++) bgLum[i] = (0.299 * bgR[i] + 0.587 * bgG[i] + 0.114 * bgB[i]) * gain;
+    // smooth the live picture 3x3 first: camera noise would otherwise look like edges everywhere
+    // (the learnt background is already an average, so it is smooth)
+    if (!lumS || lumS.length !== N) lumS = new Float32Array(N);
+    lumS.set(lum);                // border pixels keep their own value
+    for (let y = 1; y < DH - 1; y++) {
+      for (let x = 1; x < DW - 1; x++) {
+        const i = y * DW + x;
+        lumS[i] = (lum[i - DW - 1] + lum[i - DW] + lum[i - DW + 1] + lum[i - 1] + lum[i] + lum[i + 1] +
+          lum[i + DW - 1] + lum[i + DW] + lum[i + DW + 1]) / 9;
+      }
+    }
     const sob = (a, i) => {
       const gx = a[i - DW + 1] + 2 * a[i + 1] + a[i + DW + 1] - a[i - DW - 1] - 2 * a[i - 1] - a[i + DW - 1];
       const gy = a[i + DW - 1] + 2 * a[i + DW] + a[i + DW + 1] - a[i - DW - 1] - 2 * a[i - DW] - a[i - DW + 1];
@@ -264,7 +276,7 @@
     for (let y = 1; y < DH - 1; y++) {
       for (let x = 1; x < DW - 1; x++) {
         const i = y * DW + x;
-        if (sob(lum, i) - sob(bgLum, i) < thr) continue;
+        if (sob(lumS, i) - sob(bgLum, i) < thr) continue;
         const p = i * 4, r = data[p], g = data[p + 1], b = data[p + 2];
         const Cr = 128 + 0.5 * r - 0.4187 * g - 0.0813 * b, Cb = 128 - 0.1687 * r - 0.3313 * g + 0.5 * b;
         if (Cr >= 138 && Cr <= 180 && Cb >= 77 && Cb <= 130) continue;      // finger, not card
@@ -615,52 +627,52 @@
     }
     guideDebug = { g, a0, a1, peak };
     if (peak < 0.05) return null;
-    // the longest stretch of evidence along the path (small gaps allowed)
-    const thr = Math.max(0.03, peak * 0.25), gapMax = Math.max(2, g.along * 0.12);
-    let best = null, cur = null, gap = 0;
-    for (let u = 0; u < g.len; u++) {
-      const e = gProf[u] + gInk[u];
-      if (e > thr) { if (!cur) cur = { a: u, b: u, sum: 0 }; cur.b = u; cur.sum += e; gap = 0; }
-      else if (cur && ++gap > gapMax) { if (!best || cur.sum > best.sum) best = cur; cur = null; gap = 0; }
-    }
-    if (cur && (!best || cur.sum > best.sum)) best = cur;
-    if (!best || best.b - best.a < 2) return null;
-    const runLen = best.b - best.a + 1, lo = best.a <= 1, hi = best.b >= g.len - 2;
-    let c;
-    if (runLen >= g.along * 0.9 || lo === hi) c = (best.a + best.b + 1) / 2;
-    else if (lo) c = best.b + 1 - g.along / 2;       // hangs off the start of the screen
-    else c = best.a + g.along / 2;                    // hangs off the end of the screen
-    // known card: slide its printed pattern along and take the best match nearby
+    // Score every possible card position along the path: evidence inside the card's footprint (the
+    // on-screen part of it) against evidence just outside it, plus - if we know the real card - how
+    // well its printed pattern lines up there, plus a little preference for where it was last frame.
     const tpl = realTemplate(g);
-    guideDebug.run = best; guideDebug.c0 = c;
-    if (tpl) {
-      const n = tpl.length;
-      let tm = 0; for (let k = 0; k < n; k++) tm += tpl[k]; tm /= n;
-      let bestScore = 0.45, bestC = c;
-      for (let cc = c - g.along * 0.35; cc <= c + g.along * 0.35; cc += 0.5) {
-        const start = cc - g.along / 2;
+    let tm = 0;
+    if (tpl) { for (let k = 0; k < tpl.length; k++) tm += tpl[k]; tm /= tpl.length; }
+    const pred = guide ? guide.c + guide.v * (performance.now() - guide.t) : null;
+    const E = (u) => gProf[u] + gInk[u];
+    // window score: sum of (evidence - a small cost) over the on-screen part of the card's footprint.
+    // Covering all of the card's evidence wins; empty columns cost a little, so the footprint doesn't
+    // drift over nothing - and a card hanging off the screen edge costs nothing for the hidden part.
+    const half = g.along / 2, cost = peak * 0.12;
+    const pre = new Float32Array(g.len + 1);
+    for (let u = 0; u < g.len; u++) pre[u + 1] = pre[u] + E(u) - cost;
+    const winSum = (lo, hi) => {
+      const a = Math.max(0, Math.round(lo)), b = Math.min(g.len, Math.round(hi));
+      return b > a ? pre[b] - pre[a] : 0;
+    };
+    let best = null;
+    for (let c = -half + 2; c <= g.len + half - 2; c += 0.5) {
+      const lo = c - half, hi = c + half;
+      const visible = Math.min(hi, g.len) - Math.max(lo, 0);
+      if (visible < 2) continue;
+      const presence = winSum(lo, hi) / (peak * g.along);
+      if (presence <= 0.01) continue;
+      let score = presence * 2;
+      if (tpl) {
         let sxy = 0, sxx = 0, syy = 0, sy = 0, cnt = 0;
-        const ys = [];
-        for (let k = 0; k < n; k++) {
-          const u = Math.round(start + k);
-          if (u < 0 || u >= g.len) continue;
-          sy += gInk[u]; cnt++;
+        for (let k = 0; k < tpl.length; k++) { const u = Math.round(lo + k); if (u >= 0 && u < g.len) { sy += gInk[u]; cnt++; } }
+        if (cnt >= tpl.length * 0.15) {
+          const ym = sy / cnt;
+          for (let k = 0; k < tpl.length; k++) {
+            const u = Math.round(lo + k);
+            if (u < 0 || u >= g.len) continue;
+            const x = tpl[k] - tm, y = gInk[u] - ym;
+            sxy += x * y; sxx += x * x; syy += y * y;
+          }
+          if (sxx > 0 && syy > 0) score += 0.8 * sxy / Math.sqrt(sxx * syy);
         }
-        if (cnt < n * 0.3) continue;
-        const ym = sy / cnt;
-        for (let k = 0; k < n; k++) {
-          const u = Math.round(start + k);
-          if (u < 0 || u >= g.len) continue;
-          const x = tpl[k] - tm, y = gInk[u] - ym;
-          sxy += x * y; sxx += x * x; syy += y * y;
-        }
-        const score = sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : 0;
-        if (score > bestScore) { bestScore = score; bestC = cc; }
       }
-      guideDebug.match = bestScore;
-      c = bestC;
+      if (pred != null) score -= 0.4 * Math.min(1, Math.abs(c - pred) / g.along);
+      if (!best || score > best.score) best = { c, score, presence };
     }
-    return c;
+    if (!best) return null;
+    guideDebug.best = best;
+    return best.c;
   }
 
   // smooth the position along the path and remember its speed, so the card can be drawn slightly
@@ -728,7 +740,7 @@
       gctx.stroke();
     }
     gctx.fillStyle = '#fff'; gctx.font = '24px -apple-system, sans-serif';
-    gctx.fillText(`peak ${dg.peak.toFixed(2)}${dg.match != null ? ' match ' + dg.match.toFixed(2) : ''}${guide ? '' : '  (no card)'}`, 12, 60);
+    gctx.fillText(`peak ${dg.peak.toFixed(2)}${dg.best ? ' score ' + dg.best.score.toFixed(2) : ''}${guide ? '' : '  (no card)'}`, 12, 60);
     gctx.restore();
   }
 
@@ -1833,5 +1845,5 @@
   startCamera();
   requestAnimationFrame(loop);
 
-  window.__trick = { why, S, get track() { return track; }, get fps() { return fps; }, cards };   // handy for debugging
+  window.__trick = { get guide() { return guide; }, get gdbg() { return guideDebug; }, get gprof() { return Array.from(gProf.slice(0, DW)).map((v, i) => +(v + gInk[i]).toFixed(2)); }, why, S, get track() { return track; }, get fps() { return fps; }, cards };   // handy for debugging
 })();
