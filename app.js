@@ -16,7 +16,7 @@
   const skctx = skinCv.getContext('2d');
 
   // keep in step with version.json and the ?v= in index.html
-  const APP_VERSION = '18';
+  const APP_VERSION = '19';
   const CARD_W = 500, CARD_H = 700;
   const CARD_ASPECT = CARD_H / CARD_W;                     // long / short (poker card 88.9 x 63.5mm)
   const BUILTIN_ID = 'builtin-3c';
@@ -29,7 +29,7 @@
   const DEFAULTS = {
     armed: true, activeCard: BUILTIN_ID, mode: 'video', grid: true, level: true, showVersion: true, realRecord: false, recordAudio: false,
     // timed trick: a fake card animates over the live picture while the bottom is masked
-    trick: 'timed', path: 'swipe-rl', trigger: 'tap', dur: 3.2, pause: 0.6, delay: 5, cueLead: 1,
+    trick: 'timed', realCard: '', lead: 40, path: 'swipe-rl', trigger: 'tap', dur: 3.2, pause: 0.6, delay: 5, cueLead: 1,
     cardW: 78, cardY: 95, restX: 58, tilt: -4, cardBright: 100, grain: 30, blur: 20, wobble: true,
     mask: 'off', maskH: 40, maskFeather: 10, maskAfter: 1.5, mirrorOverlay: true, flip180: false, fingers: true, showDot: true,
     margin: 4, smooth: 10, hold: 4, cardS: 50,
@@ -226,7 +226,7 @@
     // frame and away from where the card was. A median ignores whatever the card is covering.
     const hist = new Uint32Array(151);   // ratio 0.5 .. 2.0 in steps of 0.01
     let count = 0;
-    const t = track, k = t ? 1.4 : 0;
+    const t = S.trick === 'guided' ? guideRect() : track, k = t ? 1.4 : 0;
     const cos = t ? Math.cos(t.theta) : 0, sin = t ? Math.sin(t.theta) : 0;
     for (let y = 1; y < DH; y += 3) {
       for (let x = 1; x < DW; x += 3) {
@@ -317,7 +317,9 @@
     if (now - lastSizeSave > 2000) { lastSizeSave = now; saveSettings(); }
   }
 
-  function detect() {
+  // per-pixel evidence of "card here": white-ish and changed from the learnt scene, plus new edges.
+  // Returns the frame's pixels, or null while the background is still being learnt.
+  function buildEvidence() {
     const data = dctx.getImageData(0, 0, DW, DH).data;
     lastPixels = data;
     const bright = S.bright, maxSat = S.maxSat / 100, useBg = S.useBg && bgReady(), diff = S.bgDiff;
@@ -342,7 +344,12 @@
     }
     updateBackground(data);
     if (!bgReady() && S.useBg) return null;
+    return data;
+  }
 
+  function detect() {
+    const data = buildEvidence();
+    if (!data) return null;
     labels.fill(0);
     const minArea = (S.minSize / 100) * N;
     let best = null, label = 0;
@@ -519,6 +526,212 @@
     return t;
   }
 
+  // ---------------------------------------------------------------- guided tracking
+  // You move the real card along an agreed path (e.g. right -> left across the lower part of the
+  // screen). Size, tilt and lane are known, so per frame the app only has to measure how far along the
+  // path the card is: it sums the evidence across the card's lane for every position along the path,
+  // finds the card's span (rebuilding the off-screen part from the known size), and, if you've told it
+  // which real card you hold, slides that card's printed pattern along to pin the position exactly.
+  let guide = null, guideLost = 0;
+  const isHorizontalPath = () => S.path === 'swipe-rl' || S.path === 'swipe-lr';
+  function guideGeom() {
+    const s = DW * S.cardW / 100, l = s * CARD_ASPECT, horiz = isHorizontalPath();
+    return {
+      s, l, horiz,
+      along: horiz ? s : l, across: horiz ? l : s,
+      lane: horiz ? DH * S.cardY / 100 : DW * S.restX / 100,
+      len: horiz ? DW : DH, span: horiz ? DH : DW,
+    };
+  }
+  // the card's rectangle in detection pixels, for the exposure estimate and the finger mask
+  function guideRect() {
+    if (!guide) return null;
+    const g = guideGeom();
+    return { cx: g.horiz ? guide.c : g.lane, cy: g.horiz ? g.lane : guide.c, s: g.s, l: g.l, theta: S.tilt * Math.PI / 180 };
+  }
+
+  const isSkinPx = (d, p) => {
+    const r = d[p], g = d[p + 1], b = d[p + 2];
+    const Cr = 128 + 0.5 * r - 0.4187 * g - 0.0813 * b, Cb = 128 - 0.1687 * r - 0.3313 * g + 0.5 * b;
+    return Cr >= 138 && Cr <= 180 && Cb >= 77 && Cb <= 130;
+  };
+
+  // printed pattern of the real card you hold: how much ink each slice across the path contains,
+  // counting only the part of the card that is on screen
+  const tplCache = new Map();
+  function realTemplate(g) {
+    const card = cards.find((c) => c.id === S.realCard);
+    if (!card) return null;
+    const img = cardImage(card);
+    if (!ready(img)) return null;
+    const sw = Math.max(4, Math.round(g.s)), sh = Math.max(4, Math.round(g.l));
+    const key = [card.id, sw, sh, Math.round(g.lane), g.horiz, mirrored()].join(':');
+    if (tplCache.has(key)) return tplCache.get(key);
+    const c = document.createElement('canvas'); c.width = sw; c.height = sh;
+    const cx = c.getContext('2d');
+    if (mirrored()) { cx.translate(sw, 0); cx.scale(-1, 1); }   // the real card is seen mirrored, like a selfie
+    cx.drawImage(img, 0, 0, sw, sh);
+    const d = cx.getImageData(0, 0, sw, sh).data;
+    const n = g.horiz ? sw : sh, out = new Float32Array(n);
+    // visible part across the lane
+    const off = g.lane - (g.horiz ? sh : sw) / 2;
+    for (let k = 0; k < n; k++) {
+      let ink = 0, cnt = 0;
+      const m = g.horiz ? sh : sw;
+      for (let j = 0; j < m; j++) {
+        const pos = off + j;
+        if (pos < 0 || pos >= g.span) continue;
+        const p = ((g.horiz ? j * sw + k : k * sw + j)) * 4;
+        const lum = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
+        if (lum < 140) ink++;
+        cnt++;
+      }
+      out[k] = cnt ? ink / cnt : 0;
+    }
+    if (tplCache.size > 20) tplCache.clear();
+    tplCache.set(key, out);
+    return out;
+  }
+
+  const gProf = new Float32Array(4096), gInk = new Float32Array(4096);
+  let guideDebug = null;
+  function guidedMeasure(data) {
+    const g = guideGeom();
+    const a0 = Math.max(0, Math.round(g.lane - g.across / 2)), a1 = Math.min(g.span - 1, Math.round(g.lane + g.across / 2));
+    if (a1 - a0 < 3) return null;
+    const rows = a1 - a0 + 1;
+    let peak = 0;
+    for (let u = 0; u < g.len; u++) {
+      let m = 0, k = 0;
+      for (let v = a0; v <= a1; v++) {
+        const i = g.horiz ? v * DW + u : u * DW + v;
+        m += mask[i];
+        // ink: much darker than the scene normally is here, and not a finger
+        const bl = (0.299 * bgR[i] + 0.587 * bgG[i] + 0.114 * bgB[i]) * gain;
+        if (lum[i] < bl - 35 && !isSkinPx(data, i * 4)) k++;
+      }
+      gProf[u] = m / rows; gInk[u] = k / rows;
+      peak = Math.max(peak, gProf[u] + gInk[u]);
+    }
+    guideDebug = { g, a0, a1, peak };
+    if (peak < 0.05) return null;
+    // the longest stretch of evidence along the path (small gaps allowed)
+    const thr = Math.max(0.03, peak * 0.25), gapMax = Math.max(2, g.along * 0.12);
+    let best = null, cur = null, gap = 0;
+    for (let u = 0; u < g.len; u++) {
+      const e = gProf[u] + gInk[u];
+      if (e > thr) { if (!cur) cur = { a: u, b: u, sum: 0 }; cur.b = u; cur.sum += e; gap = 0; }
+      else if (cur && ++gap > gapMax) { if (!best || cur.sum > best.sum) best = cur; cur = null; gap = 0; }
+    }
+    if (cur && (!best || cur.sum > best.sum)) best = cur;
+    if (!best || best.b - best.a < 2) return null;
+    const runLen = best.b - best.a + 1, lo = best.a <= 1, hi = best.b >= g.len - 2;
+    let c;
+    if (runLen >= g.along * 0.9 || lo === hi) c = (best.a + best.b + 1) / 2;
+    else if (lo) c = best.b + 1 - g.along / 2;       // hangs off the start of the screen
+    else c = best.a + g.along / 2;                    // hangs off the end of the screen
+    // known card: slide its printed pattern along and take the best match nearby
+    const tpl = realTemplate(g);
+    guideDebug.run = best; guideDebug.c0 = c;
+    if (tpl) {
+      const n = tpl.length;
+      let tm = 0; for (let k = 0; k < n; k++) tm += tpl[k]; tm /= n;
+      let bestScore = 0.45, bestC = c;
+      for (let cc = c - g.along * 0.35; cc <= c + g.along * 0.35; cc += 0.5) {
+        const start = cc - g.along / 2;
+        let sxy = 0, sxx = 0, syy = 0, sy = 0, cnt = 0;
+        const ys = [];
+        for (let k = 0; k < n; k++) {
+          const u = Math.round(start + k);
+          if (u < 0 || u >= g.len) continue;
+          sy += gInk[u]; cnt++;
+        }
+        if (cnt < n * 0.3) continue;
+        const ym = sy / cnt;
+        for (let k = 0; k < n; k++) {
+          const u = Math.round(start + k);
+          if (u < 0 || u >= g.len) continue;
+          const x = tpl[k] - tm, y = gInk[u] - ym;
+          sxy += x * y; sxx += x * x; syy += y * y;
+        }
+        const score = sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : 0;
+        if (score > bestScore) { bestScore = score; bestC = cc; }
+      }
+      guideDebug.match = bestScore;
+      c = bestC;
+    }
+    return c;
+  }
+
+  // smooth the position along the path and remember its speed, so the card can be drawn slightly
+  // ahead (the camera picture is always a frame or two old by the time it's on screen)
+  function guidedTrack(meas, now) {
+    const g = guideGeom();
+    if (meas == null) {
+      if (guide && ++guideLost > S.hold) guide = null;
+      return guide;
+    }
+    guideLost = 0;
+    if (!guide) { guide = { c: meas, v: 0, t: now }; return guide; }
+    const dt = Math.max(1, now - guide.t);
+    const pred = guide.c + guide.v * dt;
+    if (Math.abs(meas - pred) > g.along * 0.6) { guide = { c: meas, v: 0, t: now }; return guide; }
+    const a = 1 - (S.smooth / 100) * 0.8, b = 0.4 * a * a;
+    const r = meas - pred;
+    guide.c = pred + a * r;
+    guide.v = Math.max(-2, Math.min(2, guide.v + b * r / dt));
+    guide.t = now;
+    return guide;
+  }
+
+  function runGuided(now) {
+    const data = buildEvidence();
+    measureScene();
+    if (!data) { guide = null; return; }
+    const gd = guidedTrack(guidedMeasure(data), now);
+    if (S.debug) drawGuideDebug();
+    if (!gd || !S.armed || !settingsEl.hidden) return;
+    const g = guideGeom(), k = W / DW, m = 1 + S.margin / 100;
+    const c = (gd.c + gd.v * S.lead) * k;
+    const s = W * S.cardW / 100;
+    const p = {
+      x: g.horiz ? c : W * S.restX / 100, y: g.horiz ? H * S.cardY / 100 : c,
+      s: s * m, l: s * CARD_ASPECT * m, theta: S.tilt * Math.PI / 180,
+    };
+    const t = guideRect();
+    renderCard(sctx, layer, p, {
+      post: (gx) => {
+        if (!(S.fingers && t && buildSkinMask(t))) return;
+        gx.globalCompositeOperation = 'destination-out';
+        gx.drawImage(skinCv, 0, 0, W, H);
+        gx.globalCompositeOperation = 'source-over';
+      },
+    });
+  }
+
+  function drawGuideDebug() {
+    const dg = guideDebug;
+    if (!dg) return;
+    const k = W / DW, g = dg.g;
+    gctx.save();
+    gctx.fillStyle = 'rgba(255,214,10,.15)';
+    if (g.horiz) gctx.fillRect(0, dg.a0 * k, W, (dg.a1 - dg.a0) * k); else gctx.fillRect(dg.a0 * k, 0, (dg.a1 - dg.a0) * k, H);
+    for (let u = 0; u < g.len; u++) {
+      const e = Math.min(1, (gProf[u] + gInk[u]) * 2);
+      gctx.fillStyle = gInk[u] > gProf[u] ? '#ff3b30' : '#30d158';
+      if (g.horiz) gctx.fillRect(u * k, H - e * 120, k, e * 120); else gctx.fillRect(W - e * 120, u * k, e * 120, k);
+    }
+    if (guide) {
+      gctx.strokeStyle = '#0a84ff'; gctx.lineWidth = 3;
+      gctx.beginPath();
+      if (g.horiz) { gctx.moveTo(guide.c * k, 0); gctx.lineTo(guide.c * k, H); } else { gctx.moveTo(0, guide.c * k); gctx.lineTo(W, guide.c * k); }
+      gctx.stroke();
+    }
+    gctx.fillStyle = '#fff'; gctx.font = '24px -apple-system, sans-serif';
+    gctx.fillText(`peak ${dg.peak.toFixed(2)}${dg.match != null ? ' match ' + dg.match.toFixed(2) : ''}${guide ? '' : '  (no card)'}`, 12, 60);
+    gctx.restore();
+  }
+
   // ---------------------------------------------------------------- tracking
   let track = null, lost = 0;
   function updateTrack(c) {
@@ -647,6 +860,9 @@
       liveFrames++;
       if (S.trick === 'timed') {
         runTimed(now);
+        drawRecFrame();
+      } else if (S.trick === 'guided') {
+        runGuided(now);
         drawRecFrame();
       } else {
         const raw = detect();
@@ -1258,6 +1474,11 @@
       grid.appendChild(item);
     }
     $('matchToggle').checked = !!activeCard().match;
+    const rc = $('realCardSelect');
+    rc.textContent = '';
+    rc.appendChild(new Option('Any card', ''));
+    for (const c of cards) rc.appendChild(new Option(c.name, c.id));
+    rc.value = cards.some((c) => c.id === S.realCard) ? S.realCard : '';
   }
   $('matchToggle').addEventListener('change', (e) => { activeCard().match = e.target.checked; saveCards(); });
   for (const id of ['fileInput', 'cameraInput']) {
