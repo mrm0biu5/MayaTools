@@ -16,7 +16,7 @@
   const skctx = skinCv.getContext('2d');
 
   // keep in step with version.json and the ?v= in index.html
-  const APP_VERSION = '12';
+  const APP_VERSION = '13';
   const CARD_W = 500, CARD_H = 700;
   const CARD_ASPECT = CARD_H / CARD_W;                     // long / short (poker card 88.9 x 63.5mm)
   const BUILTIN_ID = 'builtin-3c';
@@ -1339,20 +1339,33 @@
     startCamera();
   });
 
-  // long-press thumbnail -> settings
-  // (a short tap plays back the last recording)
-  let pressTimer = 0;
-  const thumb = $('thumb');
-  thumb.addEventListener('touchstart', () => {
-    pressTimer = setTimeout(() => { pressTimer = 0; openSettings(); }, 700);
-  }, { passive: true });
-  thumb.addEventListener('touchend', (e) => {
-    e.preventDefault();
-    if (pressTimer) { clearTimeout(pressTimer); pressTimer = 0; openViewer(); }
-  });
-  thumb.addEventListener('touchmove', () => { clearTimeout(pressTimer); pressTimer = 0; }, { passive: true });
-  thumb.addEventListener('click', openViewer);
-  thumb.addEventListener('contextmenu', (e) => { e.preventDefault(); openSettings(); }); // desktop: right-click
+  // long-press -> settings, on the thumbnail or the ⋯ / grid button (a short tap does what the real
+  // button would). Small finger wobble is allowed; iPhones report it even when you hold still.
+  function longPress(el, onLong, onTap) {
+    let timer = 0, x = 0, y = 0, fired = false;
+    const cancel = () => { clearTimeout(timer); timer = 0; };
+    el.addEventListener('touchstart', (e) => {
+      const t = e.touches[0]; x = t.clientX; y = t.clientY; fired = false;
+      cancel();
+      timer = setTimeout(() => { timer = 0; fired = true; onLong(); }, 600);
+    }, { passive: true });
+    el.addEventListener('touchmove', (e) => {
+      const t = e.touches[0];
+      if (Math.hypot(t.clientX - x, t.clientY - y) > 14) cancel();
+    }, { passive: true });
+    el.addEventListener('touchcancel', cancel);
+    el.addEventListener('touchend', (e) => {
+      e.preventDefault();               // no synthetic click after a touch
+      const wasTap = !!timer && !fired;
+      cancel();
+      if (wasTap && onTap) onTap();
+    });
+    el.addEventListener('click', () => { if (onTap) onTap(); });
+    el.addEventListener('contextmenu', (e) => { e.preventDefault(); onLong(); });   // desktop: right-click
+  }
+  longPress($('thumb'), openSettings, openViewer);     // tap plays back the last recording (if any)
+  longPress($('moreBtn'), openSettings, null);
+  longPress($('gridBtn'), openSettings, null);
 
   // taps on the picture: 1 finger = focus square, 2 = arm/disarm, 3 = next card
   let gesture = null;
