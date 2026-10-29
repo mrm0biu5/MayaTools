@@ -38,13 +38,20 @@ fingers in front of it.
 | Tap VIDEO / PHOTO in the mode pill | Switch mode |
 | Record button | Really records the screen (overlay included); tap the thumbnail to play back / share |
 
-## Cards
-- Built in: 3♣.
-- **Grab From Camera** (in settings): hold the real card over the phone and it's captured under the
-  same lighting. This gives the most convincing result.
-- **Add Photo**: a photo cropped tightly to the card.
-- "Match room lighting" tints the overlay to the brightness and colour of the real card's white.
-  Turn it off for grabbed or lit-in-room photos.
+## Card library (Settings → Cards)
+- **Take Photo / Choose Photo / Use Front Camera** to add a card. Any angle and light is fine.
+- The corner editor finds the card's 4 corners; drag to adjust (yellow = top-left, **Rotate** if it's
+  the wrong way up). The card is straightened, and **Fix lighting** removes the photo's light and
+  shadow so the card is stored evenly lit.
+- When it plays, the card is re-lit live to the room's current colour and brightness
+  ("Card brightness vs room"), with camera grain and focus blur, so every card in the library matches.
+- Tap a card to select it; three-finger tap on the picture cycles cards during a performance.
+
+## Versions
+The version (e.g. `v7`) shows faintly at the top-left and in the settings title; switch it off in
+Settings → Camera look before performing. On launch the app checks `version.json` and reloads itself
+if a newer version is online. When releasing, bump `APP_VERSION` in `app.js`, `version.json`, and the
+`?v=` on `app.js`/`style.css` in `index.html`.
 
 ## Tuning
 Turn on **Show debug view** in settings. Green = pixels seen as card, red box = raw detection,

@@ -232,3 +232,23 @@ input[type=range] { width: 100%; accent-color: #0a84ff; }
   -webkit-appearance: none; appearance: none; background: #2c2c2e; color: #0a84ff; border: 0;
   border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 15px; max-width: 60%; text-align: right;
 }
+
+#versionTag { position: absolute; left: 14px; bottom: 6px; font-size: 10px; color: rgba(255,255,255,.35); display: none; }
+#versionTag.show { display: block; }
+.mode-photo #versionTag { bottom: 2px; }
+.sheet h1 small { font-size: 15px; color: #8e8e93; font-weight: 500; }
+
+/* ---- card corner editor ---- */
+#editor { position: fixed; inset: 0; z-index: 20; background: #000; display: flex; flex-direction: column; touch-action: none; }
+#editor[hidden] { display: none; }
+.ed-head { display: flex; justify-content: space-between; align-items: center; padding: calc(var(--top) + 6px) 12px 6px; font-size: 16px; }
+.ed-head button { color: #0a84ff; font-size: 17px; padding: 8px; }
+#edSave { font-weight: 600; }
+#edStage { flex: 1; min-height: 0; display: grid; place-items: center; padding: 8px; }
+#edCanvas { display: block; touch-action: none; }
+.ed-bottom { display: flex; gap: 14px; align-items: center; padding: 10px 16px calc(var(--bottom) + 12px); }
+#edPreview { width: 75px; height: 105px; border-radius: 5px; background: #222; flex: none; }
+.ed-tools { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.ed-tools p { margin: 0; font-size: 13px; color: #8e8e93; }
+.ed-btns { display: flex; gap: 8px; }
+.ed-match { display: flex; align-items: center; gap: 10px; font-size: 15px; }

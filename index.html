@@ -11,12 +11,13 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="manifest" href="manifest.webmanifest">
 <title>Camera</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <div id="app" class="mode-video">
   <header id="topbar">
     <i id="armDot"></i>
+    <span id="versionTag">v7</span>
     <div class="tb-right photo-only">
       <button class="pill circ off" id="liveBtn" aria-label="Live Photo">
         <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="2.6" fill="currentColor"/><circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="0.1 2.3" stroke-linecap="round"/><path class="slash" d="M4.2 4.2 19.8 19.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -69,6 +70,19 @@
   </footer>
 </div>
 
+<div id="editor" hidden>
+  <div class="ed-head"><button id="edCancel">Cancel</button><b>Line up the corners</b><button id="edSave">Save</button></div>
+  <div id="edStage"><canvas id="edCanvas"></canvas></div>
+  <div class="ed-bottom">
+    <canvas id="edPreview" width="125" height="175"></canvas>
+    <div class="ed-tools">
+      <p>Drag the dots onto the card's corners. Yellow = the card's top-left.</p>
+      <div class="ed-btns"><button class="btn" id="edRotate">Rotate</button><button class="btn" id="edAuto">Auto</button></div>
+      <label class="ed-match"><input type="checkbox" class="switch" id="edMatch" checked><span>Fix lighting</span></label>
+    </div>
+  </div>
+</div>
+
 <div id="viewer" hidden>
   <video id="playback" playsinline controls></video>
   <div class="viewer-bar"><button id="viewerShare">Share</button><button id="viewerClose">Done</button></div>
@@ -78,7 +92,7 @@
 <div id="settings" hidden>
   <div class="sheet">
     <div class="sheet-head">
-      <h1>Trick Settings</h1>
+      <h1>Trick Settings <small id="versionTitle">v7</small></h1>
       <button id="closeSettings">Done</button>
     </div>
 
@@ -109,7 +123,8 @@
       <label class="row col"><span>Card centre height <b data-out="cardY"></b>% (100 = half off the bottom)</span><input type="range" min="10" max="140" step="1" data-key="cardY"></label>
       <label class="row col"><span>Resting point across <b data-out="restX"></b>%</span><input type="range" min="0" max="100" step="1" data-key="restX"></label>
       <label class="row col"><span>Tilt <b data-out="tilt"></b>°</span><input type="range" min="-45" max="45" step="1" data-key="tilt"></label>
-      <label class="row col"><span>Shadow on card <b data-out="shade"></b>%</span><input type="range" min="0" max="60" step="1" data-key="shade"></label>
+      <label class="row col"><span>Card brightness vs room <b data-out="cardBright"></b>%</span><input type="range" min="50" max="150" step="1" data-key="cardBright"></label>
+      <label class="row col"><span>Camera grain <b data-out="grain"></b>%</span><input type="range" min="0" max="100" step="1" data-key="grain"></label>
       <label class="row col"><span>Out of focus <b data-out="blur"></b>%</span><input type="range" min="0" max="100" step="1" data-key="blur"></label>
       <label class="row"><span>Hand wobble</span><input type="checkbox" class="switch" data-key="wobble"></label>
     </div>
@@ -128,6 +143,7 @@
     <h2>Camera look</h2>
     <div class="group">
       <label class="row"><span>Grid lines</span><input type="checkbox" class="switch" data-key="grid"></label>
+      <label class="row"><span>Show version number</span><input type="checkbox" class="switch" data-key="showVersion"></label>
       <label class="row"><span>Level crosshair (phone flat)</span><input type="checkbox" class="switch" data-key="level"></label>
       <p class="hint">The level uses the phone's motion sensor; iOS asks permission once when you tap Done.</p>
     </div>
@@ -146,12 +162,13 @@
     <h2>Cards</h2>
     <div class="group">
       <div id="cardGrid"></div>
-      <label class="row"><span>Match room lighting (selected card)</span><input type="checkbox" class="switch" id="matchToggle"></label>
+      <label class="row"><span>Re-light selected card to match room</span><input type="checkbox" class="switch" id="matchToggle"></label>
       <div class="row buttons">
-        <label class="btn">Add Photo<input type="file" id="fileInput" accept="image/*" hidden></label>
-        <button class="btn" id="grabBtn">Grab From Camera</button>
+        <label class="btn">Take Photo<input type="file" id="cameraInput" accept="image/*" capture="environment" hidden></label>
+        <label class="btn">Choose Photo<input type="file" id="fileInput" accept="image/*" hidden></label>
+        <button class="btn" id="grabBtn">Use Front Camera</button>
       </div>
-      <p class="hint">Best realism: hold your real replacement card flat over the camera and use <b>Grab From Camera</b>, so it's shot under the same light. Uploaded photos should be cropped tightly to the card.</p>
+      <p class="hint">Photograph the card on any plain, darker surface – any angle and any light is fine. You'll then line up its 4 corners; the app straightens it, removes the lighting from the photo and re-lights it live to match the room. Tap a card to use it; three-finger tap on the picture cycles through them.</p>
     </div>
 
     <h2>Tracking mode – detection</h2>
@@ -178,6 +195,6 @@
   </div>
 </div>
 
-<script src="app.js"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

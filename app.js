@@ -12,6 +12,8 @@
   const skinCv = document.createElement('canvas');         // finger mask
   const skctx = skinCv.getContext('2d');
 
+  // keep in step with version.json and the ?v= in index.html
+  const APP_VERSION = '7';
   const CARD_W = 500, CARD_H = 700;
   const CARD_ASPECT = CARD_H / CARD_W;                     // long / short (poker card 88.9 x 63.5mm)
   const BUILTIN_ID = 'builtin-3c';
@@ -22,10 +24,10 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
   };
   const DEFAULTS = {
-    armed: true, activeCard: BUILTIN_ID, mode: 'video', grid: true, level: true,
+    armed: true, activeCard: BUILTIN_ID, mode: 'video', grid: true, level: true, showVersion: true,
     // timed trick: a fake card animates over the live picture while the bottom is masked
     trick: 'timed', path: 'swipe-rl', trigger: 'both', dur: 3.2, pause: 0.6, delay: 0,
-    cardW: 78, cardY: 95, restX: 58, tilt: -4, shade: 18, blur: 35, wobble: true,
+    cardW: 78, cardY: 95, restX: 58, tilt: -4, cardBright: 100, grain: 30, blur: 35, wobble: true,
     mask: 'off', maskH: 40, maskFeather: 10, maskAfter: 1.5, mirrorOverlay: true, flip180: false, fingers: true, showDot: true,
     margin: 4, smooth: 10, hold: 4, cardS: 50,
     bright: 70, maxSat: 30, minSize: 2, useBg: true, bgDiff: 20, debug: false,
@@ -47,12 +49,26 @@
     if (images.has(card.id)) return images.get(card.id);
     let img;
     if (card.builtin) img = makeThreeOfClubs();
-    else { img = new Image(); img.src = card.src; }
+    else {
+      // photos are stored as JPEG (no transparency), so round the corners when loading
+      img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = CARD_W; c.height = CARD_H;
+        const g = c.getContext('2d');
+        g.beginPath();
+        g.roundRect ? g.roundRect(0, 0, CARD_W, CARD_H, 26) : g.rect(0, 0, CARD_W, CARD_H);
+        g.clip();
+        g.drawImage(img, 0, 0, CARD_W, CARD_H);
+        images.set(card.id, c);
+      };
+      img.src = card.src;
+    }
     images.set(card.id, img);
     return img;
   }
   const activeCard = () => cards.find((c) => c.id === S.activeCard) || cards[0];
-  const ready = (img) => img instanceof HTMLCanvasElement || (img.complete && img.naturalWidth > 0);
+  const ready = (img) => img instanceof HTMLCanvasElement;   // photos become a canvas once loaded
 
   // ---------------------------------------------------------------- built-in 3 of clubs
   function drawClub(ctx, x, y, size) {
@@ -506,7 +522,6 @@
   }
 
   let fps = 0, lastT = performance.now();
-  let grab = null;  // {stable}
   function loop() {
     const now = performance.now();
     fps = fps * 0.9 + (1000 / Math.max(1, now - lastT)) * 0.1;
@@ -515,14 +530,13 @@
       drawCover(sctx, W, H, mirrored());
       drawCover(dctx, DW, DH, mirrored());
       liveFrames++;
-      if (S.trick === 'timed' && !grab) {
+      if (S.trick === 'timed') {
         runTimed(now);
       } else {
         const raw = detect();
         const t = updateTrack(raw);
-        if (grab) handleGrab(raw);
-        else if (t && S.armed && settingsEl.hidden) drawOverlay(t);
-        if (S.debug || grab) drawDebug(raw, t);
+        if (t && S.armed && settingsEl.hidden) drawOverlay(t);
+        if (S.debug) drawDebug(raw, t);
       }
     }
     requestAnimationFrame(loop);
@@ -667,6 +681,20 @@
     return out;
   }
 
+  let grainPat = null;
+  function grainPattern() {
+    if (grainPat) return grainPat;
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d'), d = g.createImageData(128, 128);
+    for (let i = 0; i < d.data.length; i += 4) {
+      const v = 128 + (Math.random() + Math.random() + Math.random() - 1.5) * 70;
+      d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255;
+    }
+    g.putImageData(d, 0, 0);
+    grainPat = lctx.createPattern(c, 'repeat');
+    return grainPat;
+  }
+
   function drawFakeCard(p) {
     const card = activeCard();
     const raw = cardImage(card);
@@ -680,17 +708,27 @@
     lctx.rotate(p.theta + (S.flip180 ? Math.PI : 0));
     if (S.mirrorOverlay && mirrored()) lctx.scale(-1, 1);
     lctx.drawImage(img, -p.s / 2, -p.l / 2, p.s, p.l);
-    // a card this close to the lens is in its own shadow and picks up the room's colour
-    const mx = Math.max(...scene.rgb, 1);
-    const base = 255 * (1 - S.shade / 100);
-    const c = scene.rgb.map((v) => Math.round(base * (0.75 + 0.25 * v / mx)));
-    if (S.shade > 0 || c.some((v) => v < 254)) {
+    // re-light: library cards are stored evenly lit (white paper), so tint them with the room's
+    // current colour and brightness, as the camera sees it right now
+    if (card.match !== false) {
+      const c = scene.rgb.map((v) => Math.round(Math.min(255, v * S.cardBright / 100)));
       lctx.globalCompositeOperation = 'multiply';
       lctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
       lctx.fillRect(-p.s / 2, -p.l / 2, p.s, p.l);
-      lctx.globalCompositeOperation = 'destination-in';
-      lctx.drawImage(img, -p.s / 2, -p.l / 2, p.s, p.l);
     }
+    // sensor noise, so the card isn't cleaner than the live picture around it
+    if (S.grain > 0) {
+      lctx.globalCompositeOperation = 'overlay';
+      lctx.globalAlpha = S.grain / 100 * 0.6;
+      lctx.fillStyle = grainPattern();
+      lctx.save();
+      lctx.translate(Math.random() * 64, Math.random() * 64);
+      lctx.fillRect(-p.s / 2 - 64, -p.l / 2 - 64, p.s + 128, p.l + 128);
+      lctx.restore();
+      lctx.globalAlpha = 1;
+    }
+    lctx.globalCompositeOperation = 'destination-in';
+    lctx.drawImage(img, -p.s / 2, -p.l / 2, p.s, p.l);
     lctx.restore();
     sctx.drawImage(layer, 0, 0);
   }
@@ -714,36 +752,6 @@
     }
   }
 
-  // ---------------------------------------------------------------- grab card from camera
-  function startGrab() {
-    closeSettings();
-    grab = { stable: 0, last: null };
-    toast('Hold the card flat over the camera…', 0);
-  }
-  function handleGrab(r) {
-    if (!r || r.touch) { grab.stable = 0; grab.last = null; return; }
-    if (grab.last && Math.hypot(r.cx - grab.last.cx, r.cy - grab.last.cy) < 1.5 && Math.abs(r.l - grab.last.l) < 2) grab.stable++;
-    else grab.stable = 0;
-    grab.last = r;
-    if (grab.stable < 12) return;
-    const k = W / DW;
-    // shrink a touch so rounded corners / background don't creep into the crop
-    const s = r.s * k * 0.97, l = r.l * k * 0.97;
-    const out = document.createElement('canvas');
-    out.width = CARD_W; out.height = CARD_H;
-    const o = out.getContext('2d');
-    o.translate(CARD_W / 2, CARD_H / 2);
-    o.scale(CARD_W / s, CARD_H / l);
-    if (mirrored()) o.scale(-1, 1);       // store the card the right way round
-    o.rotate(-r.theta);
-    o.translate(-r.cx * k, -r.cy * k);
-    o.drawImage(screenCv, 0, 0);
-    grab = null;
-    addCard(out.toDataURL('image/jpeg', 0.9), 'Grabbed', false);
-    toast('Card captured ✓', 1500);
-    setTimeout(openSettings, 900);
-  }
-
   // ---------------------------------------------------------------- card list
   function addCard(src, name, match) {
     const id = 'c' + Date.now().toString(36);
@@ -754,28 +762,289 @@
     renderCards();
   }
 
+  // ---------------------------------------------------------------- card library: import + corner editor
+  // A photo of a card (any angle, any light) is straightened using its 4 corners, then its lighting is
+  // flattened to a clean, evenly lit card so it can be re-lit live to match the room.
+  const MAX_SRC = 1600;
+  const editor = $('editor'), edCv = $('edCanvas'), edCtx = edCv.getContext('2d');
+  const edPrev = $('edPreview'), edPrevCtx = edPrev.getContext('2d');
+  let ed = null;   // { src: canvas, data: ImageData, quad: [[x,y] x4] (TL,TR,BR,BL in src px), view }
+
+  function imageToCanvas(img, w, h) {
+    const k = Math.min(1, MAX_SRC / Math.max(w, h));
+    const c = document.createElement('canvas');
+    c.width = Math.round(w * k); c.height = Math.round(h * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return c;
+  }
+
   function loadPhoto(file) {
     const url = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => {
-      let w = img.naturalWidth, h = img.naturalHeight;
-      const rotate = w > h;
-      if (rotate) [w, h] = [h, w];
-      // centre-crop to card proportions
-      let cw = w, ch = w * CARD_ASPECT;
-      if (ch > h) { ch = h; cw = h / CARD_ASPECT; }
-      const out = document.createElement('canvas');
-      out.width = CARD_W; out.height = CARD_H;
-      const o = out.getContext('2d');
-      o.scale(CARD_W / cw, CARD_H / ch);
-      o.translate(-(w - cw) / 2, -(h - ch) / 2);
-      if (rotate) { o.translate(w, 0); o.rotate(Math.PI / 2); }
-      o.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
-      addCard(out.toDataURL('image/jpeg', 0.88), file.name.replace(/\.[^.]+$/, '').slice(0, 14) || 'Photo', false);
-    };
+    img.onload = () => { openEditor(imageToCanvas(img, img.naturalWidth, img.naturalHeight)); URL.revokeObjectURL(url); };
+    img.onerror = () => { toast('Could not read that photo', 1800); URL.revokeObjectURL(url); };
     img.src = url;
   }
+
+  // front camera: count down, then take the raw (un-mirrored) frame
+  function startGrab() {
+    closeSettings();
+    let n = 3;
+    const tick = () => {
+      if (n > 0) { toast(`Hold the card over the camera… ${n}`, 0); n--; setTimeout(tick, 1000); return; }
+      const c = document.createElement('canvas');
+      c.width = video.videoWidth; c.height = video.videoHeight;
+      c.getContext('2d').drawImage(video, 0, 0);
+      toast('Got it', 700);
+      setTimeout(() => { openSettings(); openEditor(imageToCanvas(c, c.width, c.height)); }, 300);
+    };
+    tick();
+  }
+
+  // ---- find the card: biggest bright, low-colour, roughly rectangular blob
+  function detectQuad(src) {
+    const sw = 240, sh = Math.round(240 * src.height / src.width);
+    const t = document.createElement('canvas'); t.width = sw; t.height = sh;
+    const tc = t.getContext('2d'); tc.drawImage(src, 0, 0, sw, sh);
+    const d = tc.getImageData(0, 0, sw, sh).data, n = sw * sh;
+    const L = new Float32Array(n), sat = new Float32Array(n);
+    const hist = new Uint32Array(256);
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      const r = d[p], g = d[p + 1], b = d[p + 2];
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      L[i] = 0.299 * r + 0.587 * g + 0.114 * b; sat[i] = mx ? (mx - mn) / mx : 0;
+      hist[L[i] | 0]++;
+    }
+    // Otsu threshold on brightness
+    let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
+    let sB = 0, wB = 0, best = 0, thr = 128;
+    for (let i = 0; i < 256; i++) {
+      wB += hist[i]; if (!wB) continue;
+      const wF = n - wB; if (!wF) break;
+      sB += i * hist[i];
+      const mB = sB / wB, mF = (sum - sB) / wF, v = wB * wF * (mB - mF) ** 2;
+      if (v > best) { best = v; thr = i; }
+    }
+    const m = new Uint8Array(n);
+    for (let i = 0; i < n; i++) m[i] = L[i] > thr && sat[i] < 0.35 ? 1 : 0;
+    // largest component, preferring ones near the middle
+    const lab = new Int32Array(n), q = new Int32Array(n);
+    let bestPts = null, bestScore = 0, id = 0;
+    for (let i = 0; i < n; i++) {
+      if (!m[i] || lab[i]) continue;
+      id++; let qh = 0, qt = 0; q[qt++] = i; lab[i] = id;
+      const pts = []; let area = 0, cx = 0, cy = 0;
+      while (qh < qt) {
+        const j = q[qh++], x = j % sw, y = (j / sw) | 0; area++; cx += x; cy += y;
+        let edge = false;
+        for (const k of [x > 0 ? j - 1 : -1, x < sw - 1 ? j + 1 : -1, y > 0 ? j - sw : -1, y < sh - 1 ? j + sw : -1]) {
+          if (k < 0) { edge = true; continue; }
+          if (m[k]) { if (!lab[k]) { lab[k] = id; q[qt++] = k; } } else edge = true;
+        }
+        if (edge) pts.push([x, y]);
+      }
+      const dc = Math.hypot(cx / area / sw - 0.5, cy / area / sh - 0.5);
+      const score = area * (1.2 - dc);
+      if (area > n * 0.02 && score > bestScore) { bestScore = score; bestPts = pts; }
+    }
+    const s = src.width / sw;
+    const fallback = () => {
+      // centred card-shaped box
+      let w = src.width * 0.7, h = w * CARD_ASPECT;
+      if (h > src.height * 0.9) { h = src.height * 0.9; w = h / CARD_ASPECT; }
+      const x0 = (src.width - w) / 2, y0 = (src.height - h) / 2;
+      return [[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h]];
+    };
+    if (!bestPts) return fallback();
+    for (let i = 0; i < bestPts.length; i++) { bx[i] = bestPts[i][0]; by[i] = bestPts[i][1]; }
+    const hull = convexHull(bestPts.length);
+    const R = hull.length >= 3 ? minAreaRect(hull) : null;
+    if (!R) return fallback();
+    // corners = hull points furthest along the rect's diagonals (handles perspective too)
+    const u = [R.a.dx, R.a.dy], v = [R.b.dx, R.b.dy];
+    const pick = (su, sv) => {
+      let bp = hull[0], bv = -Infinity;
+      for (const p of hull) { const val = su * (p[0] * u[0] + p[1] * u[1]) + sv * (p[0] * v[0] + p[1] * v[1]); if (val > bv) { bv = val; bp = p; } }
+      return [(bp[0] + 0.5) * s, (bp[1] + 0.5) * s];
+    };
+    let quad = [pick(-1, -1), pick(1, -1), pick(1, 1), pick(-1, 1)];
+    quad = orderQuad(quad);
+    return quad;
+  }
+
+  // TL, TR, BR, BL on screen, with the long side vertical (portrait card)
+  function orderQuad(qd) {
+    const c = qd.reduce((a, p) => [a[0] + p[0] / 4, a[1] + p[1] / 4], [0, 0]);
+    qd = qd.slice().sort((a, b) => Math.atan2(a[1] - c[1], a[0] - c[0]) - Math.atan2(b[1] - c[1], b[0] - c[0]));
+    // sorted clockwise starting near angle -pi (left); rotate so the first is top-left-most
+    let start = 0, bestv = Infinity;
+    qd.forEach((p, i) => { const v = p[0] + p[1]; if (v < bestv) { bestv = v; start = i; } });
+    qd = qd.slice(start).concat(qd.slice(0, start));
+    const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    if (dist(qd[0], qd[1]) + dist(qd[2], qd[3]) > dist(qd[1], qd[2]) + dist(qd[3], qd[0])) qd = qd.slice(1).concat(qd.slice(0, 1));
+    return qd;
+  }
+
+  // ---- perspective warp: solve the homography that maps the output rectangle onto the 4 corners
+  function homography(dst, srcQ) {
+    const A = [], B = [];
+    for (let i = 0; i < 4; i++) {
+      const [x, y] = dst[i], [X, Y] = srcQ[i];
+      A.push([x, y, 1, 0, 0, 0, -x * X, -y * X]); B.push(X);
+      A.push([0, 0, 0, x, y, 1, -x * Y, -y * Y]); B.push(Y);
+    }
+    for (let c = 0; c < 8; c++) {           // Gaussian elimination
+      let piv = c;
+      for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[piv][c])) piv = r;
+      [A[c], A[piv]] = [A[piv], A[c]]; [B[c], B[piv]] = [B[piv], B[c]];
+      for (let r = 0; r < 8; r++) {
+        if (r === c) continue;
+        const f = A[r][c] / A[c][c];
+        for (let k = c; k < 8; k++) A[r][k] -= f * A[c][k];
+        B[r] -= f * B[c];
+      }
+    }
+    return B.map((b, i) => b / A[i][i]).concat(1);
+  }
+  function warp(data, sw, sh, quad, dw, dh) {
+    const h = homography([[0, 0], [dw, 0], [dw, dh], [0, dh]], quad);
+    const out = new ImageData(dw, dh), o = out.data, s = data.data;
+    for (let y = 0; y < dh; y++) {
+      for (let x = 0; x < dw; x++) {
+        const px = x + 0.5, py = y + 0.5;
+        const w = h[6] * px + h[7] * py + 1;
+        let X = (h[0] * px + h[1] * py + h[2]) / w - 0.5, Y = (h[3] * px + h[4] * py + h[5]) / w - 0.5;
+        X = Math.max(0, Math.min(sw - 1.001, X)); Y = Math.max(0, Math.min(sh - 1.001, Y));
+        const x0 = X | 0, y0 = Y | 0, fx = X - x0, fy = Y - y0;
+        const i00 = (y0 * sw + x0) * 4, i10 = i00 + 4, i01 = i00 + sw * 4, i11 = i01 + 4;
+        const p = (y * dw + x) * 4;
+        for (let k = 0; k < 3; k++) {
+          o[p + k] = (s[i00 + k] * (1 - fx) + s[i10 + k] * fx) * (1 - fy) + (s[i01 + k] * (1 - fx) + s[i11 + k] * fx) * fy;
+        }
+        o[p + 3] = 255;
+      }
+    }
+    return out;
+  }
+
+  // ---- lighting flatten: fit a smooth light gradient to the paper and divide it out
+  function flattenLighting(img) {
+    const { width: w, height: h, data: d } = img;
+    const samples = [];
+    let maxL = 0;
+    for (let y = 4; y < h - 4; y += 6) for (let x = 4; x < w - 4; x += 6) {
+      const p = (y * w + x) * 4; maxL = Math.max(maxL, 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2]);
+    }
+    for (let y = 8; y < h - 8; y += 6) for (let x = 8; x < w - 8; x += 6) {
+      const p = (y * w + x) * 4, r = d[p], g = d[p + 1], b = d[p + 2];
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (mx && (mx - mn) / mx < 0.22 && l > maxL * 0.55) samples.push([x / w, y / h, r, g, b]);
+    }
+    if (samples.length < 40) return img;
+    // least squares per channel: c(x, y) = a + b x + c y + d x y
+    const fit = (k) => {
+      const M = Array.from({ length: 4 }, () => new Array(5).fill(0));
+      for (const s of samples) {
+        const f = [1, s[0], s[1], s[0] * s[1]];
+        for (let i = 0; i < 4; i++) { for (let j = 0; j < 4; j++) M[i][j] += f[i] * f[j]; M[i][4] += f[i] * s[k]; }
+      }
+      for (let c = 0; c < 4; c++) {
+        for (let r = 0; r < 4; r++) { if (r === c) continue; const f = M[r][c] / M[c][c]; for (let j = c; j < 5; j++) M[r][j] -= f * M[c][j]; }
+      }
+      return M.map((row, i) => row[4] / row[i]);
+    };
+    const coef = [fit(2), fit(3), fit(4)];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const u = x / w, v = y / h, p = (y * w + x) * 4;
+      for (let k = 0; k < 3; k++) {
+        const c = coef[k], paper = Math.max(20, c[0] + c[1] * u + c[2] * v + c[3] * u * v);
+        d[p + k] = Math.min(255, d[p + k] * 248 / paper);
+      }
+    }
+    return img;
+  }
+
+  // ---- editor UI
+  function openEditor(src) {
+    const data = src.getContext('2d').getImageData(0, 0, src.width, src.height);
+    ed = { src, data, quad: detectQuad(src), drag: -1 };
+    $('edMatch').checked = true;
+    editor.hidden = false;
+    requestAnimationFrame(() => { layoutEditor(); drawEditor(); updatePreview(true); });
+  }
+  function layoutEditor() {
+    const stage = $('edStage').getBoundingClientRect();
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const k = Math.min(stage.width / ed.src.width, stage.height / ed.src.height);
+    edCv.style.width = ed.src.width * k + 'px'; edCv.style.height = ed.src.height * k + 'px';
+    edCv.width = Math.round(ed.src.width * k * dpr); edCv.height = Math.round(ed.src.height * k * dpr);
+    ed.view = edCv.width / ed.src.width;     // src px -> canvas px
+  }
+  function drawEditor() {
+    const v = ed.view;
+    edCtx.drawImage(ed.src, 0, 0, edCv.width, edCv.height);
+    edCtx.lineWidth = 2 * (devicePixelRatio || 1);
+    edCtx.strokeStyle = '#ffd60a';
+    edCtx.beginPath();
+    ed.quad.forEach((p, i) => (i ? edCtx.lineTo(p[0] * v, p[1] * v) : edCtx.moveTo(p[0] * v, p[1] * v)));
+    edCtx.closePath(); edCtx.stroke();
+    ed.quad.forEach((p, i) => {
+      edCtx.beginPath();
+      edCtx.arc(p[0] * v, p[1] * v, 11 * (devicePixelRatio || 1), 0, Math.PI * 2);
+      edCtx.fillStyle = i === 0 ? '#ffd60a' : 'rgba(255,255,255,.9)';
+      edCtx.fill();
+      edCtx.strokeStyle = '#000'; edCtx.lineWidth = 1.5; edCtx.stroke();
+    });
+  }
+  function warpedCard(full) {
+    const w = full ? CARD_W : 125, h = full ? CARD_H : 175;
+    const img = warp(ed.data, ed.src.width, ed.src.height, ed.quad, w, h);
+    if ($('edMatch').checked) flattenLighting(img);
+    return img;
+  }
+  function updatePreview() {
+    edPrev.width = 125; edPrev.height = 175;
+    edPrevCtx.putImageData(warpedCard(false), 0, 0);
+  }
+  const edPoint = (e) => {
+    const r = edCv.getBoundingClientRect(), t = e.touches ? e.touches[0] : e;
+    return [(t.clientX - r.left) * (edCv.width / r.width) / ed.view, (t.clientY - r.top) * (edCv.height / r.height) / ed.view];
+  };
+  const edDown = (e) => {
+    if (!ed) return;
+    const p = edPoint(e);
+    let bi = -1, bd = Infinity;
+    ed.quad.forEach((q, i) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d < bd) { bd = d; bi = i; } });
+    if (bd * ed.view < 60 * (devicePixelRatio || 1)) { ed.drag = bi; e.preventDefault(); }
+  };
+  const edMove = (e) => {
+    if (!ed || ed.drag < 0) return;
+    e.preventDefault();
+    const p = edPoint(e);
+    ed.quad[ed.drag] = [Math.max(0, Math.min(ed.src.width, p[0])), Math.max(0, Math.min(ed.src.height, p[1]))];
+    drawEditor();
+  };
+  const edUp = () => { if (ed && ed.drag >= 0) { ed.drag = -1; updatePreview(); } };
+  edCv.addEventListener('touchstart', edDown, { passive: false });
+  edCv.addEventListener('touchmove', edMove, { passive: false });
+  edCv.addEventListener('touchend', edUp);
+  edCv.addEventListener('mousedown', edDown);
+  window.addEventListener('mousemove', edMove);
+  window.addEventListener('mouseup', edUp);
+  $('edRotate').addEventListener('click', () => { ed.quad = ed.quad.slice(1).concat(ed.quad.slice(0, 1)); drawEditor(); updatePreview(); });
+  $('edAuto').addEventListener('click', () => { ed.quad = detectQuad(ed.src); drawEditor(); updatePreview(); });
+  $('edMatch').addEventListener('change', updatePreview);
+  $('edCancel').addEventListener('click', () => { editor.hidden = true; ed = null; });
+  $('edSave').addEventListener('click', () => {
+    const c = document.createElement('canvas'); c.width = CARD_W; c.height = CARD_H;
+    c.getContext('2d').putImageData(warpedCard(true), 0, 0);
+    const match = $('edMatch').checked;
+    const num = cards.filter((x) => !x.builtin).length + 1;
+    editor.hidden = true; ed = null;
+    addCard(c.toDataURL('image/jpeg', 0.9), 'Card ' + num, match);
+    toast('Added to library ✓', 1200);
+  });
+  window.addEventListener('resize', () => { if (ed && !editor.hidden) { layoutEditor(); drawEditor(); } });
 
   function renderCards() {
     const grid = $('cardGrid');
@@ -815,7 +1084,9 @@
     $('matchToggle').checked = !!activeCard().match;
   }
   $('matchToggle').addEventListener('change', (e) => { activeCard().match = e.target.checked; saveCards(); });
-  $('fileInput').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) loadPhoto(f); e.target.value = ''; });
+  for (const id of ['fileInput', 'cameraInput']) {
+    $(id).addEventListener('change', (e) => { const f = e.target.files[0]; if (f) loadPhoto(f); e.target.value = ''; });
+  }
   $('grabBtn').addEventListener('click', startGrab);
   $('previewBtn').addEventListener('click', () => { closeSettings(); setTimeout(triggerSequence, 400); });
   $('replateBtn').addEventListener('click', () => { invalidatePlate(); toast('Mask will re-capture – keep the bottom clear', 1800); });
@@ -840,6 +1111,7 @@
     for (const el of settingsEl.querySelectorAll('[data-out]')) el.textContent = S[el.dataset.out];
     $('armDot').classList.toggle('show', S.showDot && S.armed);
     $('grid').classList.toggle('show', !!S.grid);
+    $('versionTag').classList.toggle('show', !!S.showVersion);
     updateLevel();
   }
   function openSettings() { bindSettings(); renderCards(); settingsEl.hidden = false; }
@@ -1077,6 +1349,21 @@
     if (e.key === 'd') { S.debug = !S.debug; saveSettings(); }
   });
 
+  // ---------------------------------------------------------------- updates
+  // The iPhone (and GitHub) cache the app; if a newer version is online, reload into it.
+  function checkForUpdate() {
+    fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!j.version || j.version === APP_VERSION) return;
+        const u = new URL(location.href);
+        if (u.searchParams.get('v') === j.version) return;   // already tried; don't loop
+        u.searchParams.set('v', j.version);
+        location.replace(u.toString());
+      })
+      .catch(() => {});
+  }
+
   // ---------------------------------------------------------------- boot
   window.addEventListener('resize', () => { resize(); centerMode(); });
   window.addEventListener('orientationchange', () => setTimeout(resize, 300));
@@ -1086,6 +1373,8 @@
   if (!(window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function')) enableMotion();
   refreshOutputs();
   renderCards();
+  checkForUpdate();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
   startCamera();
   requestAnimationFrame(loop);
 
