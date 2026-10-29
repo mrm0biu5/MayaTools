@@ -31,7 +31,7 @@ fingers in front of it.
 ## Secret controls
 | Gesture | Action |
 |---|---|
-| Long-press photo thumbnail (bottom left) or the ⋯ button | Settings |
+| Double-tap VIDEO (the active mode in the pill) | Settings |
 | Two-finger tap on picture | Start the fake card (after the start delay, 5 s by default) |
 | Three-finger tap on picture | Next card |
 | One-finger tap | Yellow focus square (like the real app) |

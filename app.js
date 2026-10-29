@@ -16,7 +16,7 @@
   const skctx = skinCv.getContext('2d');
 
   // keep in step with version.json and the ?v= in index.html
-  const APP_VERSION = '13';
+  const APP_VERSION = '14';
   const CARD_W = 500, CARD_H = 700;
   const CARD_ASPECT = CARD_H / CARD_W;                     // long / short (poker card 88.9 x 63.5mm)
   const BUILTIN_ID = 'builtin-3c';
@@ -1363,6 +1363,19 @@
     el.addEventListener('click', () => { if (onTap) onTap(); });
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); onLong(); });   // desktop: right-click
   }
+  // double-tap the current mode's label (VIDEO / PHOTO) -> settings. Tapping the mode you're already
+  // in does nothing in the real app, so this is invisible to a spectator.
+  let lastModeTap = 0;
+  $('modePill').addEventListener('touchend', (e) => {
+    const t = e.changedTouches[0];
+    const hit = document.elementFromPoint(t.clientX, t.clientY);
+    const active = $('modeStrip').querySelector('.active');
+    if (!hit || !active || !(hit === active || hit === $('modePill'))) { lastModeTap = 0; return; }
+    const now = performance.now();
+    if (now - lastModeTap < 450) { lastModeTap = 0; e.preventDefault(); openSettings(); }
+    else lastModeTap = now;
+  });
+  $('modePill').addEventListener('dblclick', (e) => { e.preventDefault(); openSettings(); });   // desktop
   longPress($('thumb'), openSettings, openViewer);     // tap plays back the last recording (if any)
   longPress($('moreBtn'), openSettings, null);
   longPress($('gridBtn'), openSettings, null);
