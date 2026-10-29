@@ -6,9 +6,10 @@ it. The overlay follows position, size and rotation, matches the room's lighting
 fingers in front of it.
 
 ## Two trick types (Settings → Trick → Type)
-- **Timed fake card** (default): a still frame of the empty scene covers the bottom of the picture, so
-  your real card moving there is never seen. A fake card (your chosen force card) plays a pre-set path
-  over the live video, and you time your hand to match it. Start it with a two-finger tap or the
+- **Timed fake card** (default): a fake card (your chosen force card) plays a pre-set path over the
+  live video, and you time your hand to match it, keeping the real card out of the camera's view.
+  Optionally a still frame of the empty scene can mask the bottom of the picture, so a real card
+  passing through there is never seen (Settings → bottom mask). Start it with a two-finger tap or the
   Record button. Path, timing, pause, size, height, tilt, shadow and mask height are all adjustable,
   and Preview Animation lets you rehearse.
 - **Replace real card (tracking)**: finds the real card live and draws the force card over it.

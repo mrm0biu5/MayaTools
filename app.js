@@ -26,13 +26,13 @@
     // timed trick: a fake card animates over the live picture while the bottom is masked
     trick: 'timed', path: 'swipe-rl', trigger: 'both', dur: 3.2, pause: 0.6, delay: 0,
     cardW: 78, cardY: 95, restX: 58, tilt: -4, shade: 18, blur: 35, wobble: true,
-    mask: 'always', maskH: 40, maskFeather: 10, maskAfter: 1.5, mirrorOverlay: true, flip180: false, fingers: true, showDot: true,
+    mask: 'off', maskH: 40, maskFeather: 10, maskAfter: 1.5, mirrorOverlay: true, flip180: false, fingers: true, showDot: true,
     margin: 4, smooth: 10, hold: 4, cardS: 50,
     bright: 70, maxSat: 30, minSize: 2, useBg: true, bgDiff: 20, debug: false,
   };
   // bump when the default card movement changes, so phones that already saved settings pick it up
-  const MOVEMENT_VERSION = 2;
-  const MOVEMENT_KEYS = ['path', 'dur', 'pause', 'delay', 'cardW', 'cardY', 'restX', 'tilt', 'blur'];
+  const MOVEMENT_VERSION = 3;
+  const MOVEMENT_KEYS = ['path', 'dur', 'pause', 'delay', 'cardW', 'cardY', 'restX', 'tilt', 'blur', 'mask'];
   const saved = store.get('ct.settings', {});
   if (saved.movementVersion !== MOVEMENT_VERSION) MOVEMENT_KEYS.forEach((k) => delete saved[k]);
   const S = Object.assign({}, DEFAULTS, saved, { movementVersion: MOVEMENT_VERSION });

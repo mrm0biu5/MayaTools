@@ -117,12 +117,12 @@
     <h2>Timed fake card – bottom mask</h2>
     <div class="group">
       <label class="row"><span>Mask</span>
-        <select data-key="mask"><option value="always">Always on</option><option value="during">Only during the card</option><option value="off">Off</option></select></label>
+        <select data-key="mask"><option value="off">Off</option><option value="always">Always on</option><option value="during">Only during the card</option></select></label>
       <label class="row col"><span>Mask height <b data-out="maskH"></b>% of screen</span><input type="range" min="5" max="90" step="1" data-key="maskH"></label>
       <label class="row col"><span>Soft edge <b data-out="maskFeather"></b>%</span><input type="range" min="0" max="30" step="1" data-key="maskFeather"></label>
       <label class="row col"><span>Keep mask after card <b data-out="maskAfter"></b> s</span><input type="range" min="0" max="6" step="0.1" data-key="maskAfter"></label>
       <div class="row buttons"><button class="btn" id="replateBtn">Re-capture Mask</button></div>
-      <p class="hint">The mask is a still photo of the bottom of the scene, taken a second after the camera starts (or when the card starts, in “Only during” mode). Keep that area empty when it's taken. Turn on Show debug view to see the mask line.</p>
+      <p class="hint">Only needed if your real card has to pass through the camera’s view. The mask is a still photo of the bottom of the scene, taken a second after the camera starts (or when the card starts, in “Only during” mode). Keep that area empty when it's taken. Turn on Show debug view to see the mask line.</p>
     </div>
 
     <h2>Camera look</h2>
