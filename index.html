@@ -11,13 +11,13 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="manifest" href="manifest.webmanifest">
 <title>Camera</title>
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 <div id="app" class="mode-video">
   <header id="topbar">
     <i id="armDot"></i>
-    <span id="versionTag">v7</span>
+    <span id="versionTag">v8</span>
     <div class="tb-right photo-only">
       <button class="pill circ off" id="liveBtn" aria-label="Live Photo">
         <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="2.6" fill="currentColor"/><circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="0.1 2.3" stroke-linecap="round"/><path class="slash" d="M4.2 4.2 19.8 19.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -85,14 +85,14 @@
 
 <div id="viewer" hidden>
   <video id="playback" playsinline controls></video>
-  <div class="viewer-bar"><button id="viewerShare">Share</button><button id="viewerClose">Done</button></div>
+  <div class="viewer-bar"><button id="viewerShare">Save / Share</button><button id="viewerClose">Done</button></div>
 </div>
 
 <!-- Secret settings: long-press the photo thumbnail (bottom left) to open -->
 <div id="settings" hidden>
   <div class="sheet">
     <div class="sheet-head">
-      <h1>Trick Settings <small id="versionTitle">v7</small></h1>
+      <h1>Trick Settings <small id="versionTitle">v8</small></h1>
       <button id="closeSettings">Done</button>
     </div>
 
@@ -143,6 +143,7 @@
     <h2>Camera look</h2>
     <div class="group">
       <label class="row"><span>Grid lines</span><input type="checkbox" class="switch" data-key="grid"></label>
+      <label class="row"><span>Record sound (microphone)</span><input type="checkbox" class="switch" data-key="recordAudio"></label>
       <label class="row"><span>Show version number</span><input type="checkbox" class="switch" data-key="showVersion"></label>
       <label class="row"><span>Level crosshair (phone flat)</span><input type="checkbox" class="switch" data-key="level"></label>
       <p class="hint">The level uses the phone's motion sensor; iOS asks permission once when you tap Done.</p>
@@ -195,6 +196,6 @@
   </div>
 </div>
 
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>

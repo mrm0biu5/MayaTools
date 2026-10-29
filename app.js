@@ -13,7 +13,7 @@
   const skctx = skinCv.getContext('2d');
 
   // keep in step with version.json and the ?v= in index.html
-  const APP_VERSION = '7';
+  const APP_VERSION = '8';
   const CARD_W = 500, CARD_H = 700;
   const CARD_ASPECT = CARD_H / CARD_W;                     // long / short (poker card 88.9 x 63.5mm)
   const BUILTIN_ID = 'builtin-3c';
@@ -24,7 +24,7 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
   };
   const DEFAULTS = {
-    armed: true, activeCard: BUILTIN_ID, mode: 'video', grid: true, level: true, showVersion: true,
+    armed: true, activeCard: BUILTIN_ID, mode: 'video', grid: true, level: true, showVersion: true, recordAudio: true,
     // timed trick: a fake card animates over the live picture while the bottom is masked
     trick: 'timed', path: 'swipe-rl', trigger: 'both', dur: 3.2, pause: 0.6, delay: 0,
     cardW: 78, cardY: 95, restX: 58, tilt: -4, cardBright: 100, grain: 30, blur: 35, wobble: true,
@@ -120,10 +120,15 @@
   async function startCamera() {
     if (stream) stream.getTracks().forEach((t) => t.stop());
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: mode === 'video' ? 1080 : 1440 } },
-      });
+      const videoC = { facingMode: facing, width: { ideal: 1920 }, height: { ideal: mode === 'video' ? 1080 : 1440 } };
+      // ask for the microphone together with the camera (like the real app) so recordings have sound;
+      // if it's refused, carry on with video only
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: S.recordAudio, video: videoC });
+      } catch (e) {
+        if (!S.recordAudio) throw e;
+        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: videoC });
+      }
       video.srcObject = stream;
       await video.play();
       $('camError').hidden = true;
@@ -1101,6 +1106,7 @@
       el.oninput = el.onchange = () => {
         S[key] = el.type === 'checkbox' ? el.checked : el.tagName === 'SELECT' ? el.value : parseFloat(el.value);
         if (/^mask/.test(key)) invalidatePlate();
+        if (key === 'recordAudio') startCamera();
         saveSettings();
         refreshOutputs();
       };
@@ -1236,9 +1242,12 @@
     recTick = setInterval(updateRecTime, 250);
     recChunks = [];
     try {
-      const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+      const types = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
       const type = window.MediaRecorder && types.find((t) => MediaRecorder.isTypeSupported(t));
-      const rec = new MediaRecorder(screenCv.captureStream(30), type ? { mimeType: type, videoBitsPerSecond: 8e6 } : undefined);
+      const out = screenCv.captureStream(30);
+      const mic = stream && stream.getAudioTracks()[0];
+      if (mic) out.addTrack(mic);
+      const rec = new MediaRecorder(out, type ? { mimeType: type, videoBitsPerSecond: 8e6 } : undefined);
       rec.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
       rec.onstop = () => { lastClip = new Blob(recChunks, { type: rec.mimeType || type || 'video/mp4' }); };
       rec.start(1000);
