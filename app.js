@@ -5,6 +5,9 @@
   const viewport = $('viewport');
   const screenCv = $('screen');
   const sctx = screenCv.getContext('2d');
+  // debug drawings go on their own layer so they can never end up in a recording
+  const debugCv = $('debugLayer');
+  const gctx = debugCv.getContext('2d');
   const layer = document.createElement('canvas');          // overlay compositing layer
   const lctx = layer.getContext('2d');
   const det = document.createElement('canvas');            // low-res detection frame
@@ -13,7 +16,7 @@
   const skctx = skinCv.getContext('2d');
 
   // keep in step with version.json and the ?v= in index.html
-  const APP_VERSION = '8';
+  const APP_VERSION = '9';
   const CARD_W = 500, CARD_H = 700;
   const CARD_ASPECT = CARD_H / CARD_W;                     // long / short (poker card 88.9 x 63.5mm)
   const BUILTIN_ID = 'builtin-3c';
@@ -153,8 +156,8 @@
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     W = Math.max(1, Math.round(r.width * dpr));
     H = Math.max(1, Math.round(r.height * dpr));
-    screenCv.width = layer.width = W;
-    screenCv.height = layer.height = H;
+    screenCv.width = layer.width = debugCv.width = W;
+    screenCv.height = layer.height = debugCv.height = H;
     DW = 150; DH = Math.round(DW * H / W);
     det.width = skinCv.width = DW;
     det.height = skinCv.height = DH;
@@ -511,19 +514,19 @@
     dctx.putImageData(img, 0, 0);
     const k = W / DW;
     const dw = W * 0.3, dh = dw * DH / DW;
-    sctx.drawImage(det, 8, 8, dw, dh);
+    gctx.drawImage(det, 8, 8, dw, dh);
     const box = (r, color) => {
-      sctx.save();
-      sctx.translate(r.cx * k, r.cy * k); sctx.rotate(r.theta);
-      sctx.strokeStyle = color; sctx.lineWidth = 3;
-      sctx.strokeRect(-r.s * k / 2, -r.l * k / 2, r.s * k, r.l * k);
-      sctx.restore();
+      gctx.save();
+      gctx.translate(r.cx * k, r.cy * k); gctx.rotate(r.theta);
+      gctx.strokeStyle = color; gctx.lineWidth = 3;
+      gctx.strokeRect(-r.s * k / 2, -r.l * k / 2, r.s * k, r.l * k);
+      gctx.restore();
     };
     if (raw) box(raw, '#ff3b30');
     if (t) box(t, '#ffd60a');
-    sctx.fillStyle = '#fff';
-    sctx.font = `${Math.round(13 * k / 4)}px -apple-system, sans-serif`;
-    sctx.fillText(`${fps.toFixed(0)} fps  bg:${bgReady() ? 'ok' : 'learning'}  ${raw ? (raw.touch ? 'EDGE' : 'CARD') : '-'}`, 12, dh + 30);
+    gctx.fillStyle = '#fff';
+    gctx.font = `${Math.round(13 * k / 4)}px -apple-system, sans-serif`;
+    gctx.fillText(`${fps.toFixed(0)} fps  bg:${bgReady() ? 'ok' : 'learning'}  ${raw ? (raw.touch ? 'EDGE' : 'CARD') : '-'}`, 12, dh + 30);
   }
 
   let fps = 0, lastT = performance.now();
@@ -532,15 +535,18 @@
     fps = fps * 0.9 + (1000 / Math.max(1, now - lastT)) * 0.1;
     lastT = now;
     if (video.readyState >= 2 && video.videoWidth && W) {
+      gctx.clearRect(0, 0, W, H);
       drawCover(sctx, W, H, mirrored());
       drawCover(dctx, DW, DH, mirrored());
       liveFrames++;
       if (S.trick === 'timed') {
         runTimed(now);
+        drawRecFrame();
       } else {
         const raw = detect();
         const t = updateTrack(raw);
         if (t && S.armed && settingsEl.hidden) drawOverlay(t);
+        drawRecFrame();
         if (S.debug) drawDebug(raw, t);
       }
     }
@@ -751,9 +757,9 @@
     if (masking) drawPlate();
     if (pose) drawFakeCard(pose);
     if (S.debug) {
-      sctx.strokeStyle = '#ff3b30'; sctx.lineWidth = 2; sctx.setLineDash([10, 8]);
-      sctx.beginPath(); sctx.moveTo(0, maskTop()); sctx.lineTo(W, maskTop()); sctx.stroke();
-      sctx.setLineDash([]);
+      gctx.strokeStyle = '#ff3b30'; gctx.lineWidth = 2; gctx.setLineDash([10, 8]);
+      gctx.beginPath(); gctx.moveTo(0, maskTop()); gctx.lineTo(W, maskTop()); gctx.stroke();
+      gctx.setLineDash([]);
     }
   }
 
@@ -1230,6 +1236,10 @@
 
   // ---- recording: records the screen canvas, so the overlay is in the clip
   let recorder = null, recChunks = [], recStart = 0, recTick = 0, lastClip = null;
+  // clips are made from the camera picture + fake card only, at the size of a real iPhone video
+  const recCv = document.createElement('canvas');
+  const rctx = recCv.getContext('2d');
+  function drawRecFrame() { if (recorder) rctx.drawImage(screenCv, 0, 0, recCv.width, recCv.height); }
   const isRecording = () => app.classList.contains('recording');
   function updateRecTime() {
     const s = Math.floor((performance.now() - recStart) / 1000);
@@ -1244,15 +1254,25 @@
     try {
       const types = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
       const type = window.MediaRecorder && types.find((t) => MediaRecorder.isTypeSupported(t));
-      const out = screenCv.captureStream(30);
+      recCv.width = 1080; recCv.height = Math.round(1080 * H / W / 2) * 2;
+      drawRecFrame();
+      const out = recCv.captureStream(30);
       const mic = stream && stream.getAudioTracks()[0];
       if (mic) out.addTrack(mic);
       const rec = new MediaRecorder(out, type ? { mimeType: type, videoBitsPerSecond: 8e6 } : undefined);
       rec.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
-      rec.onstop = () => { lastClip = new Blob(recChunks, { type: rec.mimeType || type || 'video/mp4' }); };
+      rec.onstop = () => {
+        const blob = new Blob(recChunks, { type: rec.mimeType || type || 'video/mp4' });
+        if (blob.size > 1000) lastClip = blob;
+        else toast('Recording failed on this phone', 2500);
+      };
       rec.start(1000);
       recorder = rec;
-    } catch { recorder = null; }
+      drawRecFrame();
+    } catch (e) {
+      recorder = null;
+      toast('This phone can\'t record here (' + (e && e.name || 'error') + ')', 3000);
+    }
   }
   function stopRecording() {
     app.classList.remove('recording');
