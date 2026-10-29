@@ -14,7 +14,8 @@ html, body {
 }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 
-#app { position: fixed; inset: 0; display: flex; flex-direction: column; background: #000; }
+/* --app-h is set from JS: launched from the home screen, iOS under-reports the height by the status bar */
+#app { position: fixed; left: 0; right: 0; top: 0; height: var(--app-h, 100%); display: flex; flex-direction: column; background: #000; }
 .mode-video .photo-only, .mode-photo .video-only { display: none !important; }
 
 /* ---- top bar ---- */
@@ -42,8 +43,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 
 /* ---- preview ---- */
 #viewport { flex: none; position: relative; overflow: hidden; background: #111; width: 100vw; align-self: center; }
-.mode-video #viewport { height: min(177.778vw, calc(100vh - var(--bar))); }
-.mode-photo #viewport { height: min(133.333vw, calc(100vh - 50px - 88px - var(--top) - var(--bar))); }
+.mode-video #viewport { height: min(177.778vw, calc(var(--app-h, 100vh) - var(--bar))); }
+.mode-photo #viewport { height: min(133.333vw, calc(var(--app-h, 100vh) - 50px - 88px - var(--top) - var(--bar))); }
 #video, #screen, #debugLayer { position: absolute; inset: 0; width: 100%; height: 100%; }
 #debugLayer { pointer-events: none; }
 #video { object-fit: cover; opacity: 0; }

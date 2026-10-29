@@ -16,7 +16,7 @@
   const skctx = skinCv.getContext('2d');
 
   // keep in step with version.json and the ?v= in index.html
-  const APP_VERSION = '10';
+  const APP_VERSION = '11';
   const CARD_W = 500, CARD_H = 700;
   const CARD_ASPECT = CARD_H / CARD_W;                     // long / short (poker card 88.9 x 63.5mm)
   const BUILTIN_ID = 'builtin-3c';
@@ -151,7 +151,16 @@
   let lum, mask, labels, queue, bx, by, sk, skinData, lastPixels = null;
   let bgR = null, bgG = null, bgB = null, gain = 1;
 
+  // Home-screen (standalone) iOS apps draw under the status bar, but report a viewport that is the
+  // status bar's height too short; use the real screen height instead so nothing shifts up.
+  function fitAppHeight() {
+    const standalone = navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+    const h = standalone && screen.height > window.innerHeight ? screen.height : window.innerHeight;
+    document.documentElement.style.setProperty('--app-h', h + 'px');
+  }
+
   function resize() {
+    fitAppHeight();
     const r = viewport.getBoundingClientRect();
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     W = Math.max(1, Math.round(r.width * dpr));
