@@ -14,28 +14,34 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 
 #app { position: fixed; inset: 0; display: flex; flex-direction: column; background: #000; }
 
-/* ---- top bar ---- */
+/* ---- top bar (iOS 26 camera) ---- */
 #topbar {
-  flex: none; height: calc(52px + var(--top)); padding: var(--top) 14px 0;
-  display: flex; align-items: center; justify-content: space-between;
+  flex: none; height: calc(50px + var(--top)); padding: var(--top) 14px 0;
+  display: flex; align-items: center; justify-content: flex-end; position: relative;
 }
-#topbar .icon { width: 44px; height: 44px; display: grid; place-items: center; color: #fff; position: relative; }
-#topbar .slash { display: none; }
-#flashBtn .slash { display: inline; }         /* flash defaults to off */
-#flashBtn.on { color: var(--yellow); }
-#flashBtn.on .slash { display: none; }
-#liveBtn.off .slash { display: inline; }
-#liveBtn:not(.off) { color: var(--yellow); }
+.tb-right { display: flex; align-items: center; gap: 10px; }
+.pill {
+  height: 34px; border-radius: 17px; background: rgba(255,255,255,.13); color: #fff;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  box-shadow: inset 0 0 0 .5px rgba(255,255,255,.12);
+}
+.pill.circ { width: 34px; }
+.pill.wide { padding: 0 13px; }
+.pill .slash { display: none; }
+.pill.off .slash { display: inline; }
+.pill.on { color: var(--yellow); }
+#flashBtn.flash-on { color: var(--yellow); }
+#flashBtn.flash-off .flash-a { display: none; }
 #armDot {
-  position: absolute; left: 50%; bottom: 4px; width: 3px; height: 3px; margin-left: -1.5px;
-  border-radius: 50%; background: rgba(255,255,255,.28); display: none;
+  position: absolute; left: 22px; bottom: 20px; width: 3px; height: 3px;
+  border-radius: 50%; background: rgba(255,255,255,.22); display: none;
 }
 #armDot.show { display: block; }
 
 /* ---- preview ---- */
 #viewport {
   flex: none; position: relative; overflow: hidden; background: #111;
-  width: 100vw; height: min(133.333vw, calc(100vh - 52px - 160px - var(--top) - var(--bottom)));
+  width: 100vw; height: min(133.333vw, calc(100vh - 50px - 154px - var(--top) - var(--bottom)));
   align-self: center;
 }
 #video, #screen { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -55,10 +61,6 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   70% { opacity: 1; }
   100% { opacity: 0; transform: scale(1); }
 }
-#wideBtn {
-  position: absolute; right: 14px; bottom: 14px; width: 34px; height: 34px; border-radius: 50%;
-  background: rgba(0,0,0,.38); display: grid; place-items: center; color: #fff;
-}
 #flash { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
 #flash.go { animation: shot .22s ease-out; }
 @keyframes shot { 0% { opacity: 1; } 100% { opacity: 0; } }
@@ -75,29 +77,30 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #camError[hidden] { display: none; }
 #camError button { background: #fff; color: #000; padding: 10px 20px; border-radius: 20px; font-weight: 600; }
 
-/* ---- mode strip ---- */
-#modes { flex: none; height: 44px; position: relative; overflow: hidden; }
-#modeStrip {
-  position: absolute; top: 0; height: 100%; display: flex; align-items: center; gap: 22px;
-  white-space: nowrap; font-size: 13.5px; font-weight: 500; letter-spacing: .6px; color: rgba(255,255,255,.92);
-}
-#modeStrip .active { color: var(--yellow); }
-
-/* ---- bottom controls ---- */
-#controls {
-  flex: 1; display: flex; align-items: center; justify-content: space-between;
-  padding: 0 30px var(--bottom); min-height: 110px;
-}
-#thumb { width: 48px; height: 48px; border-radius: 7px; overflow: hidden; background: #2a2a2c; }
-#thumbCv { width: 100%; height: 100%; display: block; }
+/* ---- shutter + bottom row ---- */
+#shutterBand { flex: 1; min-height: 88px; display: grid; place-items: center; }
 #shutter {
-  width: 76px; height: 76px; border-radius: 50%; border: 4px solid #fff;
+  width: 74px; height: 74px; border-radius: 50%; border: 3px solid rgba(255,255,255,.55);
   display: grid; place-items: center;
 }
-#shutter span { width: 62px; height: 62px; border-radius: 50%; background: #fff; transition: transform .1s; }
+#shutter span { width: 62px; height: 62px; border-radius: 50%; background: #f4f4f6; transition: transform .1s; }
 #shutter:active span { transform: scale(.9); }
+#controls {
+  flex: none; height: calc(66px + var(--bottom)); padding: 0 26px var(--bottom);
+  display: flex; align-items: center; justify-content: space-between;
+}
+#thumb { width: 42px; height: 42px; border-radius: 50%; overflow: hidden; background: #2a2a2c; }
+#thumbCv { width: 100%; height: 100%; display: block; }
+#modePill {
+  display: flex; align-items: center; height: 40px; padding: 3px; border-radius: 20px;
+  background: rgba(255,255,255,.12); font-size: 13px; font-weight: 600; letter-spacing: .3px;
+}
+#modePill span { padding: 0 16px; height: 34px; line-height: 34px; border-radius: 17px; color: #fff; }
+#modePill .active {
+  color: var(--yellow); background: #1c1c1e; box-shadow: inset 0 0 0 .5px rgba(255,255,255,.18);
+}
 #flipBtn {
-  width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,.14);
+  width: 42px; height: 42px; border-radius: 50%; background: rgba(255,255,255,.13);
   display: grid; place-items: center; color: #fff; transition: transform .45s;
 }
 #flipBtn.spin { transform: rotateY(180deg); }

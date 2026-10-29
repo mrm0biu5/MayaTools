@@ -23,8 +23,8 @@
   };
   const DEFAULTS = {
     armed: true, activeCard: BUILTIN_ID, mirrorOverlay: true, flip180: false, fingers: true, showDot: true,
-    margin: 4, smooth: 30, hold: 6,
-    bright: 140, maxSat: 30, minSize: 2, useBg: true, bgDiff: 25, debug: false,
+    margin: 4, smooth: 10, hold: 4, cardS: 50,
+    bright: 70, maxSat: 30, minSize: 2, useBg: true, bgDiff: 20, debug: false,
   };
   const S = Object.assign({}, DEFAULTS, store.get('ct.settings', {}));
   const saveSettings = () => store.set('ct.settings', S);
@@ -114,7 +114,8 @@
 
   // ---------------------------------------------------------------- sizing
   let W = 0, H = 0, DW = 150, DH = 200, N = 0;
-  let lum, mask, labels, queue, bx, by, sk, bg, skinData, lastPixels = null;
+  let lum, mask, labels, queue, bx, by, sk, skinData, lastPixels = null;
+  let bgR = null, bgG = null, bgB = null, gain = 1;
 
   function resize() {
     const r = viewport.getBoundingClientRect();
@@ -131,7 +132,6 @@
     queue = new Int32Array(N); bx = new Float32Array(N); by = new Float32Array(N); sk = new Uint8Array(N);
     skinData = skctx.createImageData(DW, DH);
     resetBackground();
-    centerModes();
     track = null;
   }
 
@@ -146,25 +146,59 @@
   }
 
   // ---------------------------------------------------------------- background model
+  // Per-pixel colour of the empty scene. The card is found as "white-ish and different from
+  // what's normally there", so it works whether the card is lighter or darker than the background.
   let bgFrames = 0;
   const BG_WARMUP = 15;
-  function resetBackground() { bg = null; bgFrames = 0; }
-  const bgReady = () => bg && bgFrames >= BG_WARMUP;
-  function updateBackground() {
-    if (!bg) { bg = Float32Array.from(lum); bgFrames = 1; return; }
-    // learn fast during warm-up, then slowly, and never from pixels that look like the card
-    const a = bgFrames < BG_WARMUP ? 0.3 : 0.02;
-    for (let i = 0; i < N; i++) if (!mask[i]) bg[i] += (lum[i] - bg[i]) * a;
+  function resetBackground() { bgR = bgG = bgB = null; bgFrames = 0; gain = 1; }
+  const bgReady = () => bgR && bgFrames >= BG_WARMUP;
+  function updateBackground(data) {
+    if (!bgR) {
+      bgR = new Float32Array(N); bgG = new Float32Array(N); bgB = new Float32Array(N);
+      for (let i = 0, p = 0; i < N; i++, p += 4) { bgR[i] = data[p]; bgG[i] = data[p + 1]; bgB[i] = data[p + 2]; }
+      bgFrames = 1;
+      return;
+    }
+    // learn fast during warm-up, then slowly. Pixels that look like the card are learnt ~10x slower:
+    // a card held still survives for several seconds, while a "ghost" (something that was in view
+    // when the background was learnt) still fades away on its own.
+    const warm = bgFrames < BG_WARMUP;
+    const aBg = warm ? 0.3 : 0.02, aCard = warm ? 0.3 : 0.002;
+    for (let i = 0, p = 0; i < N; i++, p += 4) {
+      const a = mask[i] ? aCard : aBg;
+      bgR[i] += (data[p] - bgR[i]) * a; bgG[i] += (data[p + 1] - bgG[i]) * a; bgB[i] += (data[p + 2] - bgB[i]) * a;
+    }
     bgFrames++;
+  }
+  // The iPhone re-exposes when a card covers the lens; estimate that global brightness change
+  // from the pixels that were background last frame so the whole scene doesn't light up as "card".
+  function estimateGain(data) {
+    let sc = 0, sb = 0;
+    for (let i = 0, p = 0; i < N; i += 3, p += 12) {
+      if (mask[i]) continue;
+      sc += data[p] + data[p + 1] + data[p + 2];
+      sb += bgR[i] + bgG[i] + bgB[i];
+    }
+    const g = sb > 0 ? sc / sb : 1;
+    return Math.min(2, Math.max(0.5, g));
   }
 
   // ---------------------------------------------------------------- detection
-  let memory = null;   // last fully visible card size {s, l, t}
+  // Card size on screen (short side, % of width), learnt whenever the whole card is visible and
+  // used to rebuild the card while it is still cut off by the screen edge.
+  let lastSizeSave = 0;
+  function learnCardSize(c) {
+    const pct = (c.s / DW) * 100;
+    S.cardS = Math.round((S.cardS + (pct - S.cardS) * 0.3) * 10) / 10;
+    const now = performance.now();
+    if (now - lastSizeSave > 2000) { lastSizeSave = now; saveSettings(); }
+  }
 
   function detect() {
     const data = dctx.getImageData(0, 0, DW, DH).data;
     lastPixels = data;
     const bright = S.bright, maxSat = S.maxSat / 100, useBg = S.useBg && bgReady(), diff = S.bgDiff;
+    gain = useBg ? estimateGain(data) : 1;
     for (let i = 0, p = 0; i < N; i++, p += 4) {
       const r = data[p], g = data[p + 1], b = data[p + 2];
       const l = 0.299 * r + 0.587 * g + 0.114 * b;
@@ -172,10 +206,13 @@
       const mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
       const mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
       let m = l >= bright && (mx - mn) <= maxSat * mx;
-      if (m && useBg && Math.abs(l - bg[i]) < diff) m = false;
+      if (m && useBg) {
+        const d = Math.max(Math.abs(r - bgR[i] * gain), Math.abs(g - bgG[i] * gain), Math.abs(b - bgB[i] * gain));
+        if (d < diff) m = false;
+      }
       mask[i] = m ? 1 : 0;
     }
-    updateBackground();
+    updateBackground(data);
     if (!bgReady() && S.useBg) return null;
 
     labels.fill(0);
@@ -200,11 +237,11 @@
         if (edge) { bx[nb] = x; by[nb] = y; nb++; }
       }
       // a card sliding in from the edge is allowed to be smaller
-      if (area < (touch ? minArea * 0.25 : minArea)) continue;
+      if (area < (touch ? minArea * 0.25 : minArea) || area > N * 0.85) continue;
       const c = analyse(nb, area, touch);
       if (c && (!best || c.area > best.area)) { c.color = [sr / area, sg / area, sb / area]; best = c; }
     }
-    if (best && !best.touch) memory = { s: best.s, l: best.l, t: performance.now() };
+    if (best && !best.touch) learnCardSize(best);
     return best;
   }
 
@@ -291,7 +328,7 @@
       ax.trunc = Math.min(e1, e2) <= 2.5;
       ax.sign = e1 < e2 ? 1 : -1;
     }
-    const mem = memory && performance.now() - memory.t < 4000 ? memory : null;
+    const ms = (S.cardS / 100) * DW, ml = ms * CARD_ASPECT;
     const setFull = (ax, full) => {
       if (full <= ax.len) return;
       const shift = (full - ax.len) / 2 * ax.sign;
@@ -301,16 +338,19 @@
     const one = (T, O) => {
       let isLong;
       if (T.len > (O.len / CARD_ASPECT) * 1.05) isLong = true;
-      else if (mem) isLong = Math.abs(O.len - mem.s) < Math.abs(O.len - mem.l);
-      else isLong = true;
+      else isLong = Math.abs(O.len - ms) < Math.abs(O.len - ml);
       setFull(T, isLong ? O.len * CARD_ASPECT : O.len / CARD_ASPECT);
     };
     if (R.a.trunc && !R.b.trunc) one(R.a, R.b);
     else if (R.b.trunc && !R.a.trunc) one(R.b, R.a);
-    else if (R.a.trunc && R.b.trunc && mem) {
-      const [big, small] = R.a.len >= R.b.len ? [R.a, R.b] : [R.b, R.a];
-      if (big.len <= mem.l && small.len <= mem.s) { setFull(big, mem.l); setFull(small, mem.s); }
-      else { setFull(big, mem.s); setFull(small, mem.l); }
+    else if (R.a.trunc && R.b.trunc) {
+      // cut off on two sides (coming in at a corner): assume a portrait card of the learnt size,
+      // scaled up if what we can already see is bigger than that
+      const [vert, horiz] = Math.abs(R.a.dy) >= Math.abs(R.b.dy) ? [R.a, R.b] : [R.b, R.a];
+      let [fv, fh] = [ml, ms];
+      if (vert.len > fv * 1.1 && horiz.len <= fv) [fv, fh] = [ms, ml];
+      const k = Math.max(1, vert.len / fv, horiz.len / fh);
+      setFull(vert, fv * k); setFull(horiz, fh * k);
     }
   }
 
@@ -370,7 +410,7 @@
         const Cb = 128 - 0.1687 * r - 0.3313 * g + 0.5 * b;
         const Cr = 128 + 0.5 * r - 0.4187 * g - 0.0813 * b;
         if (!(Y > 45 && Cr >= 135 && Cr <= 180 && Cb >= 77 && Cb <= 135)) continue;
-        if (useBg && Math.abs(Y - bg[i]) < S.bgDiff * 0.6) continue;
+        if (useBg && Math.abs(Y - (0.299 * bgR[i] + 0.587 * bgG[i] + 0.114 * bgB[i]) * gain) < S.bgDiff * 0.6) continue;
         const ring = pu > hs * 0.9 || pv > hl * 0.9;
         sk[i] = ring ? 2 : 1;
         if (ring) queue[qt++] = i;
@@ -614,27 +654,35 @@
   }
 
   // ---------------------------------------------------------------- camera UI behaviour
-  function centerModes() {
-    const strip = $('modeStrip'), active = strip.querySelector('.active');
-    const x = window.innerWidth / 2 - (active.offsetLeft + active.offsetWidth / 2);
-    strip.style.left = x + 'px';
-  }
-
-  $('flashBtn').addEventListener('click', (e) => e.currentTarget.classList.toggle('on'));
+  const flashStates = ['flash-auto', 'flash-on', 'flash-off'];
+  let flashState = 0;
+  $('flashBtn').addEventListener('click', (e) => {
+    e.currentTarget.classList.remove(flashStates[flashState]);
+    flashState = (flashState + 1) % flashStates.length;
+    e.currentTarget.classList.add(flashStates[flashState]);
+  });
   $('liveBtn').addEventListener('click', (e) => e.currentTarget.classList.toggle('off'));
+  $('frameBtn').addEventListener('click', (e) => e.currentTarget.classList.toggle('on'));
+
+  // the real app shows your last photo; use a frame from the camera shortly after launch
+  function setThumb() {
+    const t = $('thumbCv'), g = t.getContext('2d');
+    const side = Math.min(W, H);
+    g.drawImage(screenCv, (W - side) / 2, (H - side) / 2, side, side, 0, 0, t.width, t.height);
+  }
+  video.addEventListener('playing', () => setTimeout(() => { if (!thumbSet) { thumbSet = true; setThumb(); } }, 1200));
+  let thumbSet = false;
 
   $('shutter').addEventListener('click', () => {
     const f = $('flash');
     f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
-    const t = $('thumbCv'), g = t.getContext('2d');
-    const side = Math.min(W, H);
-    g.drawImage(screenCv, (W - side) / 2, (H - side) / 2, side, side, 0, 0, t.width, t.height);
+    thumbSet = true;
+    setThumb();
   });
 
   $('flipBtn').addEventListener('click', (e) => {
     e.currentTarget.classList.toggle('spin');
     facing = facing === 'user' ? 'environment' : 'user';
-    $('wideBtn').style.display = facing === 'user' ? '' : 'none';
     track = null;
     startCamera();
   });
@@ -707,5 +755,5 @@
   startCamera();
   requestAnimationFrame(loop);
 
-  window.__trick = { S, get track() { return track; }, cards };   // handy for debugging
+  window.__trick = { S, get track() { return track; }, get fps() { return fps; }, cards };   // handy for debugging
 })();
